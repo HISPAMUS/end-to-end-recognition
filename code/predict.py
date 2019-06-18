@@ -30,8 +30,8 @@ def sparse_tensor_to_strs(sparse_tensor):
 
 parser = argparse.ArgumentParser(description='Decode a music score image with a trained model (CTC).')
 parser.add_argument('-image',  dest='image', type=str, required=True, help='Path to the input image.')
-parser.add_argument('-model', dest='model', type=str, required=True, help='Path to the trained model.')
-parser.add_argument('-vocabulary', dest='vocabulary', type=str, required=True, help='Path to the vocabulary file.')
+parser.add_argument('-model', dest='model', type=str, default='Model/Saved/hispamus_model_175.meta', help='Path to the trained model.')
+parser.add_argument('-vocabulary', dest='vocabulary', type=str, default='Model/Saved/vocabulary.npy', help='Path to the vocabulary file.')
 args = parser.parse_args()
 
 import os
