@@ -134,6 +134,7 @@ def load_set(data_filepath):
                         for region in page['regions']:
                             if region['type'] == 'staff' and "symbols" in region:                            
                                 symbol_sequence = [s["agnostic_symbol_type"] + ":" + s["position_in_straff"] for s in region["symbols"] ]
+                                # TODO: mover dentro del if
                                 y.append(symbol_sequence)
                                 vocabulary.update(symbol_sequence)                            
                                 top, left, bottom, right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
@@ -219,7 +220,8 @@ def crnn(params):
 
         x = tf.layers.max_pooling2d(inputs=x,
                                     pool_size=params['conv_pooling_size'][i],
-                                    strides=params['conv_pooling_size'][i])
+                                    strides=params['conv_pooling_size'][i],
+                                    name='conv_'+str(i))
 
         width_reduction = width_reduction * params['conv_pooling_size'][i][1]
         height_reduction = height_reduction * params['conv_pooling_size'][i][0]
