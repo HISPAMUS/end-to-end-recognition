@@ -7,6 +7,7 @@ from tensorflow.python.ops import math_ops
 import numpy as np
 import cv2
 import os
+import staffsModificator as sm
 
 # ===================================================
 
@@ -114,34 +115,9 @@ def edit_distance(a,b,EOS=-1,PAD=-1):
 
 
 def load_set(data_filepath):
-    lines = open(data_filepath, 'r').read().splitlines()
+    obj = sm.StaffsModificator(data_filepath, rotation = 3, margin = 10, erosion_dilation = True, contrast = False, iterations = 5)
 
-    vocabulary = set()    
-    x = []
-    y = []
-
-    for line in lines:
-        page_path, json_path = line.split('\t')
-        page_image = cv2.imread(page_path,True)
-        
-        print('Loading', json_path)
-        if page_image is not None:
-            with open(json_path) as json_file:  
-                data = json.load(json_file)
-                
-                for page in data['pages']:
-                    if "regions" in page:
-                        for region in page['regions']:
-                            if region['type'] == 'staff' and "symbols" in region:                            
-                                symbol_sequence = [s["agnostic_symbol_type"] + ":" + s["position_in_straff"] for s in region["symbols"] ]
-                                # TODO: mover dentro del if
-                                y.append(symbol_sequence)
-                                vocabulary.update(symbol_sequence)                            
-                                top, left, bottom, right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
-                            
-                                region_image = page_image[top:bottom,left:right]
-                                if region_image is not None:
-                                    x.append(region_image)
+    x, y, vocabulary = obj.modify_staffs()
                         
     w2i = {}
     i2w = {}
