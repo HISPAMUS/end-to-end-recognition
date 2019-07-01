@@ -113,28 +113,6 @@ def edit_distance(a,b,EOS=-1,PAD=-1):
 
     return levenshtein(_a,_b)
 
-
-def load_set(data_filepath):
-    obj = sm.StaffsModificator(data_filepath, rotation = 3, margin = 10, erosion_dilation = True, contrast = False, iterations = 5)
-
-    x, y, vocabulary = obj.modify_staffs()
-                        
-    w2i = {}
-    i2w = {}
-    
-    for idx, symbol in enumerate(vocabulary):
-        w2i[symbol] = idx
-        i2w[idx] = symbol     
-        
-        
-    # Data normalization 
-    for i in range(min(len(x),len(y))):
-        for idx, symbol in enumerate(y[i]):
-            y[i][idx] = w2i[symbol]
-        
-    return x, y, w2i, i2w
-
-
 # ===================================================
 
 def leaky_relu(features, alpha=0.2, name=None):
@@ -312,16 +290,12 @@ if __name__ == "__main__":
     # ===============================================
     # Loading data
 
-    X, Y, w2i, i2w  = load_set(args.data)
+    staffModificator = sm.staffsModificator(args.data, rotation = 3, margin = 10, erosion_dilation = True, contrast = False, iterations = 2)
+
+    X_train, Y_train, X_val, Y_val, w2i, i2w = obj.get_train_val_staffs()
 
     vocabulary_size = len(w2i)
     save_vocabulary(args.vocabulary, w2i)
-        
-    X, Y = shuffle(X, Y)
-
-    val_idx = int(val_split * len(X))
-    X_train, Y_train = X[val_idx:], Y[val_idx:]
-    X_val, Y_val = X[:val_idx], Y[:val_idx]
 
     # ===============================================
     # CRNN
@@ -336,7 +310,7 @@ if __name__ == "__main__":
     # ===============================================
     # Data preparation
     
-    X_train, Y_train = data_augmentation(X_train,Y_train)
+    #X_train, Y_train = data_augmentation(X_train,Y_train)
     X_train, Y_train = shuffle(X_train, Y_train)
     
     X_train, Y_train = data_preparation(X_train, Y_train, params)        

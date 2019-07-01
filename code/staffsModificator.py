@@ -7,7 +7,7 @@ import numpy as np
 class StaffsModificator:
     __params = dict()
     __params['pad'] = 0.1
-    
+
     # Contrast
     __params['clipLimit'] = 1.0
 
@@ -21,6 +21,16 @@ class StaffsModificator:
         self.__params['dilation'] = options['dilation'] if options.get("dilation") else False
         self.__params['iterations'] = options['iterations'] if options.get("iterations") else 1
         self.__params['lst_rute'] = lst_rute
+
+    def __getRegion(self, region, rows, cols):
+        staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
+
+        staff_top     += int(cols * self.__params['pad'])
+        staff_bottom  += int(cols * self.__params['pad'])
+        staff_right   += int(rows * self.__params['pad'])
+        staff_left    += int(rows * self.__params['pad'])
+
+        return staff_top, staff_left, staff_bottom, staff_right
 
     def __rotate_point(self, M, center, point):
         point[0] -= center[0]
@@ -52,12 +62,12 @@ class StaffsModificator:
         right   += random.randint(-1 * margin, margin)
         left    += random.randint(-1 * margin, margin)
 
-        top = max(0, top)
-        left = max(0, left)
-        bottom = min(rows, bottom)
-        right = min(cols, right)
-        top = min(top, bottom)
-        left = min(left, right)
+        top     = max(0, top)
+        left    = max(0, left)
+        bottom  = min(rows, bottom)
+        right   = min(cols, right)
+        top     = min(top, bottom)
+        left    = min(left, right)
 
         return top, bottom, right, left
 
@@ -79,19 +89,66 @@ class StaffsModificator:
             return cv2.erode(staff, kernel, iterations=1)
 
         return cv2.dilate(staff, kernel, iterations=1)
-        
 
-    def __generate_staff_json(self, ):
-        data = {}
+    def __getStaffs2Train(self, val_split):
+        num_staffs = 0
 
-        return data
-
-    def modify_staffs(self):
         lines = open(self.__params['lst_rute'], 'r').read().splitlines()
 
-        vocabulary = set()    
-        x = []
-        y = []
+        for line in lines:
+            json_path = line.split('\t')[1]
+
+            with open(json_path) as img_json:
+                data = json.load(img_json)
+                for page in data['pages']:
+                    if "regions" in page:
+                        for region in page['regions']:
+                            if region['type'] == 'staff' and "symbols" in region:
+                                num_staffs += 1
+
+        staffs2train = np.ones(num_staffs)
+        idx = []
+
+        for i in range(num_staffs):
+            idx.append(i)
+
+        random.shuffle(idx)
+        idx = idx[:int(val_split * len(idx))]
+
+        for i in idx:
+            staffs2train[i] = 0
+
+        return staffs2train
+
+    def __getMaps(self, vocabulary):
+        w2i = {}
+        i2w = {}
+        
+        for idx, symbol in enumerate(vocabulary):
+            w2i[symbol] = idx
+            i2w[idx] = symbol
+
+        return w2i, i2w
+
+    def __normalize_data(self, x_train, y_train, x_val, y_val, w2i):
+        for i in range(min(len(x_train),len(y_train))):
+            for idx, symbol in enumerate(y_train[i]):
+                y_train[i][idx] = w2i[symbol]
+
+        for i in range(min(len(x_val),len(y_val))):
+            for idx, symbol in enumerate(y_val[i]):
+                y_val[i][idx] = w2i[symbol]
+
+        return y_train, y_val
+
+    def get_train_val_staffs(self, val_split = 0.1):
+        idx = self.__getStaffs2Train(val_split)
+
+        lines = open(self.__params['lst_rute'], 'r').read().splitlines()
+
+        vocabulary = set()
+        x_train, y_train, x_val, y_val = [], [], [], []
+        num_staff = 0
 
         for line in lines:
             imag_path, json_path = line.split('\t')
@@ -111,44 +168,54 @@ class StaffsModificator:
                         if "regions" in page:
                             for region in page['regions']:
                                 if region['type'] == 'staff' and "symbols" in region:
-
                                     symbol_sequence = [s["agnostic_symbol_type"] + ":" + s["position_in_straff"] for s in region["symbols"]]
                                     vocabulary.update(symbol_sequence)
 
-                                    for _ in range(0, self.__params['iterations']):
-                                        image = img
-                                        y.append(symbol_sequence)
-
-                                        staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
-
-                                        staff_top     += int(cols * self.__params['pad'])
-                                        staff_bottom  += int(cols * self.__params['pad'])
-                                        staff_right   += int(rows * self.__params['pad'])
-                                        staff_left    += int(rows * self.__params['pad'])
-
-                                        if self.__params.get("rotation_rank"):
-                                            angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank'])
-                                        else:
-                                            angle = 0
-
-                                        M = cv2.getRotationMatrix2D(center, angle, 1.0)
-                                        image = cv2.warpAffine(image, M, (new_cols, new_rows))
-
-                                        M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
-                                        staff_top, staff_bottom, staff_left, staff_right = self.__rotate_points(M, center, staff_top, staff_bottom, staff_left, staff_right)
-
-                                        if self.__params.get("random_margin"):
-                                            staff_top, staff_bottom, staff_right, staff_left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, staff_top, staff_bottom, staff_right, staff_left)
-
-                                        staff = image[staff_top:staff_bottom, staff_left:staff_right]
+                                    o_staff_top, o_staff_left, o_staff_bottom, o_staff_right = self.__getRegion(region, rows, cols)
 
 
-                                        if self.__params.get("contrast") == True:
-                                            staff = self.__apply_contrast(staff)
+                                    if(idx[num_staff] == 0):
+                                        x_val.append(img[o_staff_top:o_staff_bottom, o_staff_left:o_staff_right])
+                                        y_val.append(symbol_sequence.copy())
 
-                                        if self.__params.get("erosion_dilation") == True:
-                                            staff = self.__apply_erosion_dilation(staff)
+                                    else:
+                                        # Se guarda la copia original
+                                        x_train.append(img[o_staff_top:o_staff_bottom, o_staff_left:o_staff_right])
+                                        y_train.append(symbol_sequence.copy())
 
-                                        x.append(staff)
+                                        for _ in range(0, self.__params['iterations']):
+                                            image = img
+                                            staff_top, staff_left, staff_bottom, staff_right = o_staff_top, o_staff_left, o_staff_bottom, o_staff_right
+                                            y_train.append(symbol_sequence.copy())
 
-        return x, y, vocabulary
+                                            if self.__params.get("rotation_rank"):
+                                                angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank'])
+                                            else:
+                                                angle = 0
+
+                                            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                                            image = cv2.warpAffine(image, M, (new_cols, new_rows))
+
+                                            M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
+                                            staff_top, staff_bottom, staff_left, staff_right = self.__rotate_points(M, center, staff_top, staff_bottom, staff_left, staff_right)
+
+                                            if self.__params.get("random_margin"):
+                                                staff_top, staff_bottom, staff_right, staff_left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, staff_top, staff_bottom, staff_right, staff_left)
+
+                                            staff = image[staff_top:staff_bottom, staff_left:staff_right]
+
+
+                                            if self.__params.get("contrast") == True:
+                                                staff = self.__apply_contrast(staff)
+
+                                            if self.__params.get("erosion_dilation") == True:
+                                                staff = self.__apply_erosion_dilation(staff)
+
+                                            x_train.append(staff)
+
+                                    num_staff += 1
+
+        w2i, i2w = self.__getMaps(vocabulary)
+        y_train, y_val = self.__normalize_data(x_train, y_train, x_val, y_val, w2i)
+
+        return x_train, y_train, x_val, y_val, w2i, i2w
