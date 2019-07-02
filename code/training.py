@@ -290,9 +290,9 @@ if __name__ == "__main__":
     # ===============================================
     # Loading data
 
-    staffModificator = sm.staffsModificator(args.data, rotation = 3, margin = 10, erosion_dilation = True, contrast = False, iterations = 2)
+    staffModificator = sm.StaffsModificator(rotation = 3, margin = 10, erosion_dilation = True, contrast = False, iterations = 2)
 
-    X_train, Y_train, X_val, Y_val, w2i, i2w = obj.get_train_val_staffs()
+    X_train, Y_train, X_val, Y_val, w2i, i2w = obj.get_train_val_staffs(args.data)
 
     vocabulary_size = len(w2i)
     save_vocabulary(args.vocabulary, w2i)

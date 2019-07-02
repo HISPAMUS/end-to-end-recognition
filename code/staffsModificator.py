@@ -14,13 +14,12 @@ class StaffsModificator:
     # Erosion and Dilation
     __params['kernel'] = 4
 
-    def __init__(self, lst_rute, **options):
+    def __init__(self, **options):
         self.__params['rotation_rank'] = options['rotation'] if options.get("rotation") else 0
         self.__params['random_margin'] = options['margin'] if options.get("margin") else 0
         self.__params['erosion_dilation'] = options['erosion_dilation'] if options.get("erosion_dilation") else False
         self.__params['dilation'] = options['dilation'] if options.get("dilation") else False
         self.__params['iterations'] = options['iterations'] if options.get("iterations") else 1
-        self.__params['lst_rute'] = lst_rute
 
     def __getRegion(self, region, rows, cols):
         staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
@@ -90,10 +89,10 @@ class StaffsModificator:
 
         return cv2.dilate(staff, kernel, iterations=1)
 
-    def __getStaffs2Train(self, val_split):
+    def __getStaffs2Train(self, rute, val_split):
         num_staffs = 0
 
-        lines = open(self.__params['lst_rute'], 'r').read().splitlines()
+        lines = open(rute, 'r').read().splitlines()
 
         for line in lines:
             json_path = line.split('\t')[1]
@@ -141,10 +140,55 @@ class StaffsModificator:
 
         return y_train, y_val
 
-    def get_train_val_staffs(self, val_split = 0.1):
-        idx = self.__getStaffs2Train(val_split)
+    def modify_staff(self, img, top, bottom, left, right):
+        x = []
 
-        lines = open(self.__params['lst_rute'], 'r').read().splitlines()
+        (rows, cols) = img.shape[:2]
+        img = np.pad(img, ((int(cols * self.__params['pad']),), (int(rows * self.__params['pad']),), (0,)), 'mean')
+        (new_rows, new_cols) = img.shape[:2]
+        center = (int(new_cols/2), int(new_rows/2))
+
+        top     += int(cols * self.__params['pad'])
+        bottom  += int(cols * self.__params['pad'])
+        right   += int(rows * self.__params['pad'])
+        left    += int(rows * self.__params['pad'])
+
+        x.append(img[top:bottom, left:right])
+
+        for _ in range(0, self.__params['iterations']):
+            image = img
+            staff_top, staff_left, staff_bottom, staff_right = top, left, bottom, right
+
+            if self.__params.get("rotation_rank"):
+                angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank'])
+            else:
+                angle = 0
+
+            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+            image = cv2.warpAffine(image, M, (new_cols, new_rows))
+
+            M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
+            staff_top, staff_bottom, staff_left, staff_right = self.__rotate_points(M, center, staff_top, staff_bottom, staff_left, staff_right)
+
+            if self.__params.get("random_margin"):
+                staff_top, staff_bottom, staff_right, staff_left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, staff_top, staff_bottom, staff_right, staff_left)
+
+            staff = image[staff_top:staff_bottom, staff_left:staff_right]
+
+            if self.__params.get("contrast") == True:
+                staff = self.__apply_contrast(staff)
+
+            if self.__params.get("erosion_dilation") == True:
+                staff = self.__apply_erosion_dilation(staff)
+
+            x.append(staff)
+
+        return x
+
+    def get_train_val_staffs(self, rute, val_split = 0.1):
+        idx = self.__getStaffs2Train(rute, val_split)
+
+        lines = open(rute, 'r').read().splitlines()
 
         vocabulary = set()
         x_train, y_train, x_val, y_val = [], [], [], []
@@ -219,3 +263,34 @@ class StaffsModificator:
         y_train, y_val = self.__normalize_data(x_train, y_train, x_val, y_val, w2i)
 
         return x_train, y_train, x_val, y_val, w2i, i2w
+
+if __name__ == "__main__":
+    x = []
+    sm = StaffsModificator(rotation = 3, margin = 10, erosion_dilation = True, contrast = False, iterations = 2)
+
+    lines = open("../data/hispamus.lst", 'r').read().splitlines()
+
+    for line in lines:
+        print(line)
+        imag_path, json_path = line.split('\t')
+        img = cv2.imread(imag_path)[:,:,::-1]
+
+        print('Loading', json_path)
+        if img is not None:
+            with open(json_path) as img_json:
+                data = json.load(img_json)
+
+                for page in data['pages']:
+                    if "regions" in page:
+                        for region in page['regions']:
+                            if region['type'] == 'staff' and "symbols" in region:
+                                staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
+
+                                staffs = sm.modify_staff(img, staff_top, staff_bottom, staff_left, staff_right)
+                                for staff in staffs:
+                                    x.append(staff)
+                                
+
+    for im in x:
+        plt.imshow(im)
+        plt.show()
