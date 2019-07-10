@@ -31,6 +31,7 @@ for h in log.handlers:
 #log.addHandler(fh)
 
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 config = tf.compat.v1.ConfigProto()
 config.gpu_options.allow_growth = True
 sess = tf.compat.v1.Session(config=config)
@@ -221,7 +222,7 @@ class DataReader:
         return img, np.int32(width), label, np.int32(len(label))
     
     def __map_load_and_preprocess_regions(self, image, region, label):
-        return tf.numpy_function(self.__load_and_preprocess_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32])
+        return tf.py_func(self.__load_and_preprocess_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32])
 
 
 # ===================================================
