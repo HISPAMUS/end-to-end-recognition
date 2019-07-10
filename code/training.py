@@ -266,7 +266,7 @@ def crnn(params):
     tf.add_to_collection("logits", logits)  # for restoring purposes
 
     # CTC Loss computation
-    seq_len = tf.placeholder(tf.int32, [None], name='seq_lengths')
+    seq_len = tf.placeholder(tf.int32, [None], name='seq_lengths') # Real length of the image
     targets = tf.sparse_placeholder(dtype=tf.int32, name='target')
     ctc_loss = tf.nn.ctc_loss(labels=targets, inputs=logits, sequence_length=seq_len, time_major=True)
     loss = tf.reduce_mean(ctc_loss)
@@ -363,7 +363,7 @@ if __name__ == "__main__":
     X_train, Y_train = data_augmentation(X_train,Y_train)
     X_train, Y_train = shuffle(X_train, Y_train)
     
-    X_train, Y_train = data_preparation(X_train, Y_train, params)        
+    X_train, Y_train = data_preparation(X_train, Y_train, params)        # TODO: replace with data augmentation WIP
     L_train = [image.shape[1] // params['width_reduction'] for image in X_train]
     X_train = build_batch(X_train, channels = 1)
     
