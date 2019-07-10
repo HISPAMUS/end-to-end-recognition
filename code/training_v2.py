@@ -484,7 +484,7 @@ if __name__ == '__main__':
     sess.run(tf.global_variables_initializer())
 
     for epoch in range(FLAGS.epochs):
-        print("Epoch {}/{}".format(epoch, FLAGS.epochs))
+        log.info("Epoch {}/{}".format(epoch, FLAGS.epochs))
 
         it_train = train_ds.make_one_shot_iterator()
         next_batch = it_train.get_next()
@@ -545,8 +545,8 @@ if __name__ == '__main__':
                         h = [ lang.idx2word[w] for w in sequence[i] ]
                         y = [ lang.idx2word[w] for w in Y_val_batch[i] ]
 
-                        print("Y:",y) # ************
-                        print("H:",h) # ************
+                        log.info("Y:{}".format(y)) # ************
+                        log.info("H:{}".format(h)) # ************
                         
                         acc_ed += edit_distance(h, y)
                         acc_len += len(y)
@@ -554,10 +554,10 @@ if __name__ == '__main__':
                 except tf.errors.OutOfRangeError:
                     break
 
-            print('Epoch',epoch,' - SER:', str(100. * acc_ed / acc_len), ' - From ',acc_count,'samples')
+            log.info('Epoch {} - SER: {} - From {} samples'.format(epoch, str(100. * acc_ed / acc_len), acc_count))
             
             if epoch % 5 == 0:
                 if FLAGS.save_model is not None:
                     save_model_epoch = args.save_model+'_'+str(epoch)
-                    print('-> Saving current model to ',save_model_epoch)
+                    log.info('-> Saving current model to {}'.format(save_model_epoch))
                     saver.save(sess, save_model_epoch)
