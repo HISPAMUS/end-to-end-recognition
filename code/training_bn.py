@@ -11,11 +11,14 @@ import sys
 
 # ===================================================
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-config = tf.ConfigProto()
-config.gpu_options.allow_growth=True
-tf.reset_default_graph()
-sess = tf.InteractiveSession(config=config)
+def config(FLAGS):
+    if FLAGS.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth=True
+    tf.reset_default_graph()
+    sess = tf.InteractiveSession(config=config)
+    return sess
 
 # ===================================================
 
@@ -332,8 +335,10 @@ if __name__ == "__main__":
     parser.add_argument('-data', dest='data', type=str, required=True, help='Path to data file.')
     parser.add_argument('-save_model', dest='save_model', type=str, default=None, help='Path to saved model.')
     parser.add_argument('-vocabulary', dest='vocabulary', type=str, required=True, help='Path to export the vocabulary.')
+    parser.add_argument('-gpu', dest='gpu', type=str, default=None, help='GPU id')
     args = parser.parse_args()
 
+    sess = config(args)
 
     # ===============================================
     # Loading data
