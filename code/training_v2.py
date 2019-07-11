@@ -495,7 +495,7 @@ if __name__ == '__main__':
                 XL_train_batch = [length // params['width_reduction'] for length in XL_train_batch]
                 Y_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_train_batch)]
 
-                log.info('Batch {}/{}: {} samples'.format(batch, ceil(data_reader.TRAIN_SPLIT/FLAGS.batch_size), len(X_train_batch)))
+                #log.info('Batch {}/{}: {} samples'.format(batch, ceil(data_reader.TRAIN_SPLIT/FLAGS.batch_size), len(X_train_batch)))
 
                 # Deal with empty staff sections
                 for idx, _ in enumerate(X_train_batch):

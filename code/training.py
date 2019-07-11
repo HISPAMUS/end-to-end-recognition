@@ -10,6 +10,7 @@ import os
 
 # ===================================================
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 config = tf.ConfigProto()
 config.gpu_options.allow_growth=True
 tf.reset_default_graph()
@@ -335,6 +336,7 @@ if __name__ == "__main__":
 
     # ===============================================
     # Loading data
+    print("Loading data...")
 
     X, Y, w2i, i2w  = load_set(args.data)
 
@@ -347,8 +349,11 @@ if __name__ == "__main__":
     X_train, Y_train = X[val_idx:], Y[val_idx:]
     X_val, Y_val = X[:val_idx], Y[:val_idx]
 
+    print("Done")
+
     # ===============================================
     # CRNN
+    print("Creating model...")
     
     params = default_model_params(fixed_height, vocabulary_size)    
    
@@ -356,9 +361,11 @@ if __name__ == "__main__":
     optimizer = tf.train.AdamOptimizer().minimize(crnn_placeholders['loss'])
     decoder, log_prob = tf.nn.ctc_greedy_decoder(crnn_placeholders['logits'], crnn_placeholders['seq_len'])
 
+    print("Done")
     
     # ===============================================
     # Data preparation
+    print("Preparing data...")
     
     X_train, Y_train = data_augmentation(X_train,Y_train)
     X_train, Y_train = shuffle(X_train, Y_train)
@@ -370,6 +377,8 @@ if __name__ == "__main__":
     X_val, Y_val = data_preparation(X_val, Y_val, params)
     L_val = [image.shape[1] // params['width_reduction'] for image in X_val]
     X_val = build_batch(X_val, channels = 1)
+
+    print("Done")
     
     # ===============================================
     # Training   
@@ -381,6 +390,7 @@ if __name__ == "__main__":
     sess.run(tf.global_variables_initializer())
 
     for epoch in range(max_epochs):
+        print("Epoch {}/{}".format(epoch, max_epochs))
         epoch_loss = 0
 
         for batch_idx in range(0, X_train.shape[0], mini_batch_size):
@@ -399,7 +409,7 @@ if __name__ == "__main__":
                              crnn_placeholders['input']: X_train_batch,
                              crnn_placeholders['seq_len']: L_train_batch,
                              crnn_placeholders['target']: sparse_tuple_from(Y_train_batch),
-                             crnn_placeholders['keep_prob']: 0.75
+                             crnn_placeholders['keep_prob']: 0.5
                          }
                         )
 
