@@ -2,7 +2,6 @@ import argparse
 import cv2
 from datetime import datetime
 import json
-import logging
 from math import ceil
 import numpy as np
 import os
@@ -15,27 +14,14 @@ from threading import Lock
 
 # ===================================================
 
-# get TF logger
-log = logging.getLogger('tensorflow')
-log.setLevel(logging.DEBUG)
-
-# create formatter and add it to the handlers
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-for h in log.handlers:
-    h.setFormatter(formatter)
-
-# create file handler which logs even debug messages
-#fh = logging.FileHandler('tensorflow.log')
-#fh.setLevel(logging.DEBUG)
-#fh.setFormatter(formatter)
-#log.addHandler(fh)
-
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.allow_growth = True
-sess = tf.compat.v1.Session(config=config)
-tf.compat.v1.keras.backend.set_session(sess)
+def config(FLAGS):
+    if FLAGS.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth=True
+    tf.reset_default_graph()
+    sess = tf.InteractiveSession(config=config)
+    return sess
 
 # ===================================================
 
@@ -49,10 +35,8 @@ class ImageCache:
         self.__lock.acquire()
         image = []
         if path in self.__images:
-            logging.debug('-- Reading {} from cache'.format(path))
             image = self.__images[path]
         else:
-            logging.debug('-- Reading {} from disk'.format(path))
             image = cv2.imread(path, True)
             self.__images[path] = image
         self.__lock.release()
@@ -91,15 +75,15 @@ class LanguageIndex():
 
 
 class LstReader:
-    def __init__(self, lst_path):
+    def __init__(self, lst_path, seq_delimiter=False):
         self.images = []
         self.regions = []
         self.symbols = []
         self.positions = []
         self.joint = []
-        self.__load_lst(lst_path)
+        self.__load_lst(lst_path, seq_delimiter)
 
-    def __load_lst(self, lst_path):
+    def __load_lst(self, lst_path, seq_delimiter=False):
         lines = open(lst_path, 'r').read().splitlines()
         for line in lines:
             page_path, json_path = line.split('\t')
@@ -111,15 +95,20 @@ class LstReader:
                         for region in page['regions']:
                             if region['type'] == 'staff' and 'symbols' in region:
                                 self.images.append(page_path)
-                                self.symbols.append(['<s>'] + [s['agnostic_symbol_type'] for s in region['symbols']] + ['<e>'])
-                                self.positions.append(['<s>'] + [s["position_in_straff"] for s in region['symbols']] + ['<e>'])
-                                self.joint.append(['<s>'] + ['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in region['symbols']] + ['<e>'])
+                                if seq_delimiter:
+                                    self.symbols.append(['<s>'] + [s['agnostic_symbol_type'] for s in region['symbols']] + ['<e>'])
+                                    self.positions.append(['<s>'] + [s["position_in_straff"] for s in region['symbols']] + ['<e>'])
+                                    self.joint.append(['<s>'] + ['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in region['symbols']] + ['<e>'])
+                                else:
+                                    self.symbols.append([s['agnostic_symbol_type'] for s in region['symbols']])
+                                    self.positions.append([s["position_in_straff"] for s in region['symbols']])
+                                    self.joint.append(['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in region['symbols']])
                                 top, left, bottom, right = region['bounding_box']['fromY'], region['bounding_box']['fromX'], region['bounding_box']['toY'], region['bounding_box']['toX']
                                 self.regions.append([top, bottom, left, right])
                                 region_count += 1
-                logging.info('{}: {} regions'.format(json_path, region_count))
-                if region_count == 0:
-                    logging.warning('No regions found in {}'.format(json_path))
+                #print('{}: {} regions'.format(json_path, region_count))
+                #if region_count == 0:
+                    #print('No regions found in {}'.format(json_path))
         
         self.symbol_lang = LanguageIndex(self.symbols)
         for i, seq in enumerate(self.symbols):
@@ -138,8 +127,8 @@ class LstReader:
 
 
 class DataReader:
-    def __init__(self, lst_path, image_height, channels=1, test_split=0.1, validation_split=0.1, batch_size=16, parallel=tf.data.experimental.AUTOTUNE):
-        self.__lst = LstReader(lst_path)
+    def __init__(self, lst_path, image_height, seq_delimiter=False, channels=1, test_split=0.1, validation_split=0.1, batch_size=16, parallel=tf.data.experimental.AUTOTUNE):
+        self.__lst = LstReader(lst_path, seq_delimiter)
         self.__cache = ImageCache()
         self.__IMAGE_HEIGHT = image_height
         self.__CHANNELS = channels
@@ -205,7 +194,7 @@ class DataReader:
         return train_ds, val_ds, test_ds, self.__lst.joint_lang
 
     def __load_and_preprocess_regions(self, path, region, label):
-        logging.debug('Loading region {}[{}]'.format(path, region))
+        #print('Loading region {}[{}]'.format(path, region))
         page_image = self.__cache.read_image(path.decode())
         top, bottom, left, right = region
 
@@ -443,22 +432,29 @@ if __name__ == '__main__':
 
     parser.add_argument('--image-height', dest='image_height', type=int, default=64, help='Image size will be reduced to this height')
     parser.add_argument('--channels', dest='channels', type=int, default=1, help='Number of channels in training')
+    parser.add_argument('--seq-delimiter', dest='seq_delimiter', default=False, action='store_true', help='Use or not sequence delimiters <s> (start) and <e> (end)')
+
+    parser.add_argument('--test-split', dest='test_split', type=float, default=0.1, help='% of samples for testing')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=16, help='Batch size')
     parser.add_argument('--epochs', dest='epochs', type=int, default=1000, help='Number of training epochs')
+    parser.add_argument('--gpu', dest='gpu', type=str, default=None, help='GPU id')
 
     FLAGS = parser.parse_args()
 
+    # ===============================================
+    # Initialize TensorFlow
+    sess = config(FLAGS)
 
     # ===============================================
     # Loading data
-    log.info('Preparing data...')
+    print('Preparing data...')
     
-    data_reader = DataReader(FLAGS.data_path, image_height=FLAGS.image_height, channels=FLAGS.channels)
+    data_reader = DataReader(FLAGS.data_path, image_height=FLAGS.image_height, channels=FLAGS.channels, seq_delimiter=FLAGS.seq_delimiter, test_split=FLAGS.test_split)
     train_ds, val_ds, test_ds, lang = data_reader.get_joint_data()
 
     vocabulary_size = len(lang.word2idx)
 
-    log.info('Done')
+    print('Done')
 
     # ===============================================
     # Setting params
@@ -466,25 +462,25 @@ if __name__ == '__main__':
 
     # ===============================================
     # CRNN
-    log.info("Creating model...")
+    print("Creating model...")
        
     crnn_placeholders = crnn(params)
     optimizer = tf.train.AdamOptimizer().minimize(crnn_placeholders['loss'])
     decoder, log_prob = tf.nn.ctc_greedy_decoder(crnn_placeholders['logits'], crnn_placeholders['seq_len'])
 
-    log.info("Done")
+    print("Done")
 
     # ===============================================
     # Training   
-    log.info('Training with ' + str(data_reader.TRAIN_SPLIT) + ' samples.')
-    log.info('Validating with ' + str(data_reader.VAL_SPLIT) + ' samples.')
-    log.info('Testing with ' + str(data_reader.TEST_SPLIT) + ' samples.')
+    print('Training with ' + str(data_reader.TRAIN_SPLIT) + ' samples.')
+    print('Validating with ' + str(data_reader.VAL_SPLIT) + ' samples.')
+    print('Testing with ' + str(data_reader.TEST_SPLIT) + ' samples.')
 
     saver = tf.train.Saver(max_to_keep=None)
     sess.run(tf.global_variables_initializer())
 
     for epoch in range(FLAGS.epochs):
-        log.info("Epoch {}/{}".format(epoch, FLAGS.epochs))
+        print("Epoch {}/{}".format(epoch, FLAGS.epochs))
 
         it_train = train_ds.make_one_shot_iterator()
         next_batch = it_train.get_next()
@@ -495,7 +491,7 @@ if __name__ == '__main__':
                 XL_train_batch = [length // params['width_reduction'] for length in XL_train_batch]
                 Y_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_train_batch)]
 
-                log.info('Batch {}/{}: {} samples'.format(batch, ceil(data_reader.TRAIN_SPLIT/FLAGS.batch_size), len(X_train_batch)))
+                print('Batch {}/{}: {} samples'.format(batch, ceil(data_reader.TRAIN_SPLIT/FLAGS.batch_size), len(X_train_batch)))
 
                 # Deal with empty staff sections
                 for idx, _ in enumerate(X_train_batch):
@@ -545,8 +541,8 @@ if __name__ == '__main__':
                         h = [ lang.idx2word[w] for w in sequence[i] ]
                         y = [ lang.idx2word[w] for w in Y_val_batch[i] ]
 
-                        log.info("Y:{}".format(y)) # ************
-                        log.info("H:{}".format(h)) # ************
+                        print("Y:{}".format(y)) # ************
+                        print("H:{}".format(h)) # ************
                         
                         acc_ed += edit_distance(h, y)
                         acc_len += len(y)
@@ -554,10 +550,10 @@ if __name__ == '__main__':
                 except tf.errors.OutOfRangeError:
                     break
 
-            log.info('Epoch {} - SER: {} - From {} samples'.format(epoch, str(100. * acc_ed / acc_len), acc_count))
+            print('Epoch {} - SER: {} - From {} samples'.format(epoch, str(100. * acc_ed / acc_len), acc_count))
             
             if epoch % 5 == 0:
                 if FLAGS.save_model is not None:
                     save_model_epoch = args.save_model+'_'+str(epoch)
-                    log.info('-> Saving current model to {}'.format(save_model_epoch))
+                    print('-> Saving current model to {}'.format(save_model_epoch))
                     saver.save(sess, save_model_epoch)
