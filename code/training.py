@@ -11,6 +11,7 @@ import sys
 
 # ===================================================
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 config = tf.ConfigProto()
 config.gpu_options.allow_growth=True
 tf.reset_default_graph()
@@ -410,7 +411,7 @@ if __name__ == "__main__":
                              crnn_placeholders['input']: X_train_batch,
                              crnn_placeholders['seq_len']: L_train_batch,
                              crnn_placeholders['target']: sparse_tuple_from(Y_train_batch),
-                             crnn_placeholders['keep_prob']: 0.75
+                             crnn_placeholders['keep_prob']: 0.5
                          }
                         )
 
