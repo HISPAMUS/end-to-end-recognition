@@ -18,7 +18,7 @@ class StaffsModificator:
         self.__params['rotation_rank'] = options['rotation'] if options.get("rotation") else 0
         self.__params['random_margin'] = options['margin'] if options.get("margin") else 0
         self.__params['erosion_dilation'] = options['erosion_dilation'] if options.get("erosion_dilation") else False
-        self.__params['dilation'] = options['dilation'] if options.get("dilation") else False
+        self.__params['contrast'] = options['contrast'] if options.get("contrast") else False
         self.__params['iterations'] = options['iterations'] if options.get("iterations") else 1
 
     def __getRegion(self, region, rows, cols):
@@ -184,6 +184,43 @@ class StaffsModificator:
             x.append(staff)
 
         return x
+    
+    def get_one_staff_modification(self, img, top, bottom, left, right):
+        print("Modificando...")
+        (rows, cols) = img.shape[:2]
+        img = np.pad(img, ((int(cols * self.__params['pad']),), (int(rows * self.__params['pad']),), (0,)), 'mean')
+        (new_rows, new_cols) = img.shape[:2]
+        center = (int(new_cols/2), int(new_rows/2))
+
+        top     += int(cols * self.__params['pad'])
+        bottom  += int(cols * self.__params['pad'])
+        right   += int(rows * self.__params['pad'])
+        left    += int(rows * self.__params['pad'])
+
+        if self.__params.get("rotation_rank"):
+                angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank'])
+        else:
+            angle = 0
+
+        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+        image = cv2.warpAffine(img, M, (new_cols, new_rows))
+
+        M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
+        top, bottom, left, right = self.__rotate_points(M, center, top, bottom, left, right)
+
+        if self.__params.get("random_margin"):
+            top, bottom, right, left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, top, bottom, right, left)
+
+        staff = image[top:bottom, left:right]
+
+        if self.__params.get("contrast") == True:
+            staff = self.__apply_contrast(staff)
+
+        if self.__params.get("erosion_dilation") == True:
+            staff = self.__apply_erosion_dilation(staff)
+        
+        return staff
+
 
     def get_train_val_staffs(self, rute, val_split = 0.1):
         idx = self.__getStaffs2Train(rute, val_split)
