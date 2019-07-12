@@ -75,15 +75,15 @@ class LanguageIndex():
 
 
 class LstReader:
-    def __init__(self, lst_path, seq_delimiter=False):
+    def __init__(self, lst_path, sequence_delimiter=False):
         self.images = []
         self.regions = []
         self.symbols = []
         self.positions = []
         self.joint = []
-        self.__load_lst(lst_path, seq_delimiter)
+        self.__load_lst(lst_path, sequence_delimiter)
 
-    def __load_lst(self, lst_path, seq_delimiter=False):
+    def __load_lst(self, lst_path, sequence_delimiter=False):
         lines = open(lst_path, 'r').read().splitlines()
         for line in lines:
             page_path, json_path = line.split('\t')
@@ -95,7 +95,7 @@ class LstReader:
                         for region in page['regions']:
                             if region['type'] == 'staff' and 'symbols' in region:
                                 self.images.append(page_path)
-                                if seq_delimiter:
+                                if sequence_delimiter:
                                     self.symbols.append(['<s>'] + [s['agnostic_symbol_type'] for s in region['symbols']] + ['<e>'])
                                     self.positions.append(['<s>'] + [s["position_in_straff"] for s in region['symbols']] + ['<e>'])
                                     self.joint.append(['<s>'] + ['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in region['symbols']] + ['<e>'])
@@ -104,11 +104,12 @@ class LstReader:
                                     self.positions.append([s["position_in_straff"] for s in region['symbols']])
                                     self.joint.append(['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in region['symbols']])
                                 top, left, bottom, right = region['bounding_box']['fromY'], region['bounding_box']['fromX'], region['bounding_box']['toY'], region['bounding_box']['toX']
-                                self.regions.append([top, bottom, left, right])
+                                region_id = region['id']
+                                self.regions.append([top, bottom, left, right, region_id])
                                 region_count += 1
                 #print('{}: {} regions'.format(json_path, region_count))
                 #if region_count == 0:
-                    #print('No regions found in {}'.format(json_path))
+                #    print('No regions found in {}'.format(json_path))
         
         self.symbol_lang = LanguageIndex(self.symbols)
         for i, seq in enumerate(self.symbols):
@@ -126,9 +127,146 @@ class LstReader:
 # ===================================================
 
 
+class StaffsModificator:
+    __params = dict()
+    __params['pad'] = 0.1
+
+    # Contrast
+    __params['clipLimit'] = 1.0
+
+    # Erosion and Dilation
+    __params['kernel'] = 4
+
+    def __init__(self, **options):
+        self.__params['rotation_rank'] = options['rotation'] if options.get("rotation") else 0
+        self.__params['random_margin'] = options['margin'] if options.get("margin") else 0
+        self.__params['erosion_dilation'] = options['erosion_dilation'] if options.get("erosion_dilation") else False
+        self.__params['contrast'] = options['contrast'] if options.get("contrast") else False
+        self.__params['iterations'] = options['iterations'] if options.get("iterations") else 1
+
+    def __getRegion(self, region, rows, cols):
+        staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
+
+        staff_top     += int(cols * self.__params['pad'])
+        staff_bottom  += int(cols * self.__params['pad'])
+        staff_right   += int(rows * self.__params['pad'])
+        staff_left    += int(rows * self.__params['pad'])
+
+        return staff_top, staff_left, staff_bottom, staff_right
+
+    def __rotate_point(self, M, center, point):
+        point[0] -= center[0]
+        point[1] -= center[1]
+
+        point = np.dot(point, M)
+
+        point[0] += center[0]
+        point[1] += center[1]
+
+        return point
+
+    def __rotate_points(self, M, center, top, bottom, left, right):
+        left_top     = self.__rotate_point(M, center, [left, top])
+        right_top    = self.__rotate_point(M, center, [right, top])
+        left_bottom  = self.__rotate_point(M, center, [left, bottom])
+        right_bottom = self.__rotate_point(M, center, [right, bottom])
+
+        top     = min(left_top[1], right_top[1])
+        bottom  = max(left_bottom[1], right_bottom[1])
+        left    = min(left_top[0], left_bottom[0])
+        right   = max(right_top[0], right_bottom[0])
+
+        return int(top), int(bottom), int(left), int(right)
+
+    def __apply_random_margins(self, margin, rows, cols, top, bottom, right, left):
+        top     += random.randint(-1 * margin, margin)
+        bottom  += random.randint(-1 * margin, margin)
+        right   += random.randint(-1 * margin, margin)
+        left    += random.randint(-1 * margin, margin)
+
+        top     = max(0, top)
+        left    = max(0, left)
+        bottom  = min(rows, bottom)
+        right   = min(cols, right)
+        top     = min(top, bottom)
+        left    = min(left, right)
+
+        return top, bottom, right, left
+
+    def __apply_contrast(self, staff):
+        clahe = cv2.createCLAHE(self.__params['clipLimit'])
+        lab = cv2.cvtColor(staff, cv2.COLOR_BGR2LAB)
+        lab_planes = cv2.split(lab)
+
+        lab_planes[0] = clahe.apply(lab_planes[0])
+
+        lab = cv2.merge(lab_planes)
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+    def __apply_erosion_dilation(self, staff):
+        n = random.randint(-1 * self.__params['kernel'], self.__params['kernel'])
+        kernel = np.ones((abs(n), abs(n)), np.uint8)
+
+        if(n < 0):
+            return cv2.erode(staff, kernel, iterations=1)
+
+        return cv2.dilate(staff, kernel, iterations=1)
+
+    def apply(self, img, top, bottom, left, right):
+        #print("Modificando...")
+        (rows, cols) = img.shape[:2]
+        img = np.pad(img, ((int(cols * self.__params['pad']),), (int(rows * self.__params['pad']),), (0,)), 'mean')
+        (new_rows, new_cols) = img.shape[:2]
+        center = (int(new_cols/2), int(new_rows/2))
+
+        top     += int(cols * self.__params['pad'])
+        bottom  += int(cols * self.__params['pad'])
+        right   += int(rows * self.__params['pad'])
+        left    += int(rows * self.__params['pad'])
+
+        if self.__params.get("rotation_rank"):
+                angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank'])
+        else:
+            angle = 0
+
+        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+        image = cv2.warpAffine(img, M, (new_cols, new_rows))
+
+        M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
+        top, bottom, left, right = self.__rotate_points(M, center, top, bottom, left, right)
+
+        if self.__params.get("random_margin"):
+            top, bottom, right, left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, top, bottom, right, left)
+
+        staff = image[top:bottom, left:right]
+
+        if self.__params.get("contrast") == True:
+            staff = self.__apply_contrast(staff)
+
+        if self.__params.get("erosion_dilation") == True:
+            staff = self.__apply_erosion_dilation(staff)
+        
+        return staff
+
+
+# ===================================================
+
+
 class DataReader:
-    def __init__(self, lst_path, image_height, seq_delimiter=False, channels=1, test_split=0.1, validation_split=0.1, batch_size=16, parallel=tf.data.experimental.AUTOTUNE):
-        self.__lst = LstReader(lst_path, seq_delimiter)
+    def __init__(self,
+                 lst_path,
+                 image_height=64,
+                 sequence_delimiter=False,
+                 channels=1,
+                 test_split=0.1,
+                 validation_split=0.1,
+                 batch_size=16,
+                 image_transformations=4,
+                 parallel=tf.data.experimental.AUTOTUNE):
+
+        self.__lst = LstReader(lst_path, sequence_delimiter)
+        self.__augmenter = StaffsModificator(rotation = 3, margin = 10, erosion_dilation = True, contrast = False)
+        self.__TRANSFORMATIONS = image_transformations
         self.__cache = ImageCache()
         self.__IMAGE_HEIGHT = image_height
         self.__CHANNELS = channels
@@ -145,58 +283,87 @@ class DataReader:
                                                             self.__lst.positions,
                                                             self.__lst.joint)
 
-        self.__image_ds = tf.data.Dataset.from_tensor_slices(images)
-        self.__region_ds = tf.data.Dataset.from_generator(lambda: regions, tf.int32) # Workaround for creating a dataset with sequences of different length
-        self.__symbol_ds = tf.data.Dataset.from_generator(lambda: symbols, tf.int32)
-        self.__position_ds = tf.data.Dataset.from_generator(lambda: positions, tf.int32)
-        self.__joint_ds = tf.data.Dataset.from_generator(lambda: joint, tf.int32)
-
-    def __make_partitions(self, dataset):
-        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape(()))
-
-        test_ds = dataset \
-            .take(self.TEST_SPLIT) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .shuffle(buffer_size=self.TEST_SPLIT) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0)) \
-            .prefetch(1)
-
-        val_ds = dataset \
-            .skip(self.TEST_SPLIT) \
-            .take(self.VAL_SPLIT) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .shuffle(buffer_size=self.VAL_SPLIT) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0)) \
-            .prefetch(1)
-
-        train_ds = dataset \
-            .skip(self.TEST_SPLIT + self.VAL_SPLIT) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .shuffle(buffer_size=self.TRAIN_SPLIT) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0)) \
-            .prefetch(1)
+        val_idx = self.TEST_SPLIT
+        train_idx = val_idx + self.VAL_SPLIT
         
-        return train_ds, val_ds, test_ds
-        
+        self.__image_test_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in images[:val_idx]], tf.string)
+        self.__region_test_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in regions[:val_idx]], tf.int32) # Workaround for creating a dataset with sequences of different length
+        self.__symbol_test_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in symbols[:val_idx]], tf.int32)
+        self.__position_test_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in positions[:val_idx]], tf.int32)
+        self.__joint_test_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in joint[:val_idx]], tf.int32)
+
+        self.__image_val_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in images[val_idx:train_idx]], tf.string)
+        self.__region_val_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in regions[val_idx:train_idx]], tf.int32) # Workaround for creating a dataset with sequences of different length
+        self.__symbol_val_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in symbols[val_idx:train_idx]], tf.int32)
+        self.__position_val_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in positions[val_idx:train_idx]], tf.int32)
+        self.__joint_val_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in joint[val_idx:train_idx]], tf.int32)
+
+        images_train, regions_train, symbols_train, positions_train, joint_train = [], [], [], [], []
+        for _ in range(self.__TRANSFORMATIONS):
+            images_train = images_train + images[train_idx:]
+            regions_train = regions_train + regions[train_idx:]
+            symbols_train = symbols_train + symbols[train_idx:]
+            positions_train = positions_train + positions[train_idx:]
+            joint_train = joint_train + positions[train_idx:]
+
+        self.__image_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in images_train], tf.string)
+        self.__region_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in regions_train], tf.int32) # Workaround for creating a dataset with sequences of different length
+        self.__symbol_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in symbols_train], tf.int32)
+        self.__position_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in positions_train], tf.int32)
+        self.__joint_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in joint_train], tf.int32)
+
     def get_symbol_data(self):
-        dataset = tf.data.Dataset.zip((self.__image_ds, self.__region_ds, self.__symbol_ds))        
-        train_ds, val_ds, test_ds = self.__make_partitions(dataset)
+        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape(()), tf.TensorShape(()), tf.TensorShape(()))
+        test_ds = tf.data.Dataset.zip((self.__image_test_ds, self.__region_test_ds, self.__symbol_test_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
+        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__symbol_val_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
+        train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__symbol_train_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
         return train_ds, val_ds, test_ds, self.__lst.symbol_lang
-    
+
     def get_position_data(self):
-        dataset = tf.data.Dataset.zip((self.__image_ds, self.__region_ds, self.__position_ds))
-        train_ds, val_ds, test_ds = self.__make_partitions(dataset)
+        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape(()), tf.TensorShape(()), tf.TensorShape(()))
+        test_ds = tf.data.Dataset.zip((self.__image_test_ds, self.__region_test_ds, self.__position_test_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
+        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__position_val_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
+        train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__position_train_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
         return train_ds, val_ds, test_ds, self.__lst.position_lang
 
     def get_joint_data(self):
-        dataset = tf.data.Dataset.zip((self.__image_ds, self.__region_ds, self.__joint_ds))        
-        train_ds, val_ds, test_ds = self.__make_partitions(dataset)
+        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape(()), tf.TensorShape(()), tf.TensorShape(()))
+        test_ds = tf.data.Dataset.zip((self.__image_test_ds, self.__region_test_ds, self.__joint_test_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
+        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__joint_val_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
+        train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__joint_train_ds)) \
+            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .prefetch(1)
         return train_ds, val_ds, test_ds, self.__lst.joint_lang
 
     def __load_and_preprocess_regions(self, path, region, label):
         #print('Loading region {}[{}]'.format(path, region))
         page_image = self.__cache.read_image(path.decode())
-        top, bottom, left, right = region
+        top, bottom, left, right, region_id = region
 
         img = page_image[top:bottom, left:right]
         if self.__CHANNELS == 1:
@@ -208,10 +375,35 @@ class DataReader:
         if self.__CHANNELS == 1:
             img = img[:, :, np.newaxis]
 
-        return img, np.int32(width), label, np.int32(len(label))
+        # (image, image_width, symbol_sequence, symbol_sequence_length, page_path, region_id)
+        # page_path & region_id are included for debugging purposes
+        return img, np.int32(width), label, np.int32(len(label)), path, region_id
     
     def __map_load_and_preprocess_regions(self, image, region, label):
-        return tf.py_func(self.__load_and_preprocess_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32])
+        return tf.py_func(self.__load_and_preprocess_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
+
+    def __load_and_preprocess_modificated_regions(self, path, region, label):
+        #print('Loading region {}[{}]'.format(path, region))
+        page_image = self.__cache.read_image(path.decode())
+        top, bottom, left, right, region_id = region
+        
+        img = self.__augmenter.apply(page_image, top, bottom, left, right)
+        
+        if self.__CHANNELS == 1:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) # Pre-process
+        img = np.float32((255. - img) / 255.)
+        height = self.__IMAGE_HEIGHT
+        width = int(float(height * img.shape[1]) / img.shape[0])
+        img = cv2.resize(img, (width, height))
+        if self.__CHANNELS == 1:
+            img = img[:, :, np.newaxis]
+
+        # (image, image_width, symbol_sequence, symbol_sequence_length, page_path, region_id)
+        # page_path & region_id are included for debugging purposes
+        return img, np.int32(width), label, np.int32(len(label)), path, region_id
+    
+    def __map_load_and_preprocess_modificated_regions(self, image, region, label):
+        return tf.numpy_function(self.__load_and_preprocess_modificated_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
 
 
 # ===================================================
@@ -224,12 +416,12 @@ def leaky_relu(features, alpha=0.2, name=None):
     return math_ops.maximum(alpha * features, features)
 
 
-def default_model_params(img_height, vocabulary_size):
+def default_model_params(img_height, img_channels, vocabulary_size, batch_size):
     params = dict()
     params['img_height'] = img_height
     params['img_width'] = None
-    params['batch_size'] = 16
-    params['img_channels'] = 1
+    params['batch_size'] = batch_size
+    params['img_channels'] = img_channels
     params['conv_blocks'] = 4
     params['conv_filter_n'] = [64, 64, 128, 128]
     params['conv_filter_size'] = [[5, 5], [5, 5], [3, 3], [3, 3]]
@@ -426,18 +618,20 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='CRNN Training for HMR.')
     
-    parser.add_argument('--input-data', dest='data_path', type=str, required=True, help='Path to data file.')
-    parser.add_argument('--output-vocabulary', dest='vocabulary_path', required=True, help='Saves vocabulary file to the specified path')
-    parser.add_argument('--save-model', dest='save_model', type=str, default=None, help='Path to saved model.')
-
+    # DataReader options
+    parser.add_argument('--input-data', dest='data_path', type=str, required=True, help='Path to data file')
     parser.add_argument('--image-height', dest='image_height', type=int, default=64, help='Image size will be reduced to this height')
     parser.add_argument('--channels', dest='channels', type=int, default=1, help='Number of channels in training')
-    parser.add_argument('--seq-delimiter', dest='seq_delimiter', default=False, action='store_true', help='Use or not sequence delimiters <s> (start) and <e> (end)')
-
+    parser.add_argument('--image-transformations', dest='image_transformations', type=int, default=4, help='Data augmentation: number or transformations to apply to the images in the training set')
+    parser.add_argument('--sequence-delimiter', dest='sequence_delimiter', default=False, action='store_true', help='Use or not sequence delimiters <s> (start) and <e> (end)')
     parser.add_argument('--test-split', dest='test_split', type=float, default=0.1, help='% of samples for testing')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=16, help='Batch size')
+
+    # Training options
     parser.add_argument('--epochs', dest='epochs', type=int, default=1000, help='Number of training epochs')
     parser.add_argument('--gpu', dest='gpu', type=str, default=None, help='GPU id')
+    parser.add_argument('--output-vocabulary', dest='vocabulary_path', required=True, help='Saves vocabulary file to the specified path')
+    parser.add_argument('--save-model', dest='save_model', type=str, default=None, help='Path to saved model')
 
     FLAGS = parser.parse_args()
 
@@ -449,16 +643,22 @@ if __name__ == '__main__':
     # Loading data
     print('Preparing data...')
     
-    data_reader = DataReader(FLAGS.data_path, image_height=FLAGS.image_height, channels=FLAGS.channels, seq_delimiter=FLAGS.seq_delimiter, test_split=FLAGS.test_split)
+    data_reader = DataReader(FLAGS.data_path,
+        image_height=FLAGS.image_height,
+        channels=FLAGS.channels,
+        sequence_delimiter=FLAGS.sequence_delimiter,
+        test_split=FLAGS.test_split,
+        batch_size=FLAGS.batch_size,
+        image_transformations=FLAGS.image_transformations)
+    
     train_ds, val_ds, test_ds, lang = data_reader.get_joint_data()
-
     vocabulary_size = len(lang.word2idx)
 
     print('Done')
 
     # ===============================================
     # Setting params
-    params = default_model_params(FLAGS.image_height, vocabulary_size)    
+    params = default_model_params(FLAGS.image_height, FLAGS.channels, vocabulary_size, FLAGS.batch_size)
 
     # ===============================================
     # CRNN
@@ -487,11 +687,11 @@ if __name__ == '__main__':
         batch = 1
         while True:
             try:
-                X_train_batch, XL_train_batch, Y_train_batch, YL_train_batch = sess.run(next_batch)
+                X_train_batch, XL_train_batch, Y_train_batch, YL_train_batch, _, _ = sess.run(next_batch)
                 XL_train_batch = [length // params['width_reduction'] for length in XL_train_batch]
                 Y_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_train_batch)]
 
-                print('Batch {}/{}: {} samples'.format(batch, ceil(data_reader.TRAIN_SPLIT/FLAGS.batch_size), len(X_train_batch)))
+                print('Batch {}: {} samples'.format(batch, len(X_train_batch)))
 
                 # Deal with empty staff sections
                 for idx, _ in enumerate(X_train_batch):
