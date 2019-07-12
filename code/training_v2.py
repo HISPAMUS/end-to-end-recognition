@@ -754,6 +754,6 @@ if __name__ == '__main__':
             
             if epoch % 5 == 0:
                 if FLAGS.save_model is not None:
-                    save_model_epoch = args.save_model+'_'+str(epoch)
+                    save_model_epoch = FLAGS.save_model+'_'+str(epoch)
                     print('-> Saving current model to {}'.format(save_model_epoch))
                     saver.save(sess, save_model_epoch)
