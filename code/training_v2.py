@@ -724,7 +724,7 @@ if __name__ == '__main__':
             next_batch = it_val.get_next()
             while True:
                 try:
-                    X_val_batch, XL_val_batch, Y_val_batch, YL_val_batch = sess.run(next_batch)
+                    X_val_batch, XL_val_batch, Y_val_batch, YL_val_batch, _, _ = sess.run(next_batch)
                     XL_val_batch = [length // params['width_reduction'] for length in XL_val_batch]
                     Y_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_val_batch)]
 
