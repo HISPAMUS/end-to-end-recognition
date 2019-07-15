@@ -5,6 +5,7 @@ import json
 from math import ceil
 import numpy as np
 import os
+import random
 from sklearn.utils import shuffle
 import tensorflow as tf
 from tensorflow.python.framework import ops
@@ -327,7 +328,7 @@ class DataReader:
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
             .prefetch(1)
         train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__symbol_train_ds)) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .map(self.__map_load_and_preprocess_modificated_regions, num_parallel_calls=self.__PARALLEL) \
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
             .prefetch(1)
         return train_ds, val_ds, test_ds, self.__lst.symbol_lang
@@ -343,7 +344,7 @@ class DataReader:
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
             .prefetch(1)
         train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__position_train_ds)) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .map(self.__map_load_and_preprocess_modificated_regions, num_parallel_calls=self.__PARALLEL) \
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
             .prefetch(1)
         return train_ds, val_ds, test_ds, self.__lst.position_lang
@@ -359,7 +360,7 @@ class DataReader:
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
             .prefetch(1)
         train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__joint_train_ds)) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
+            .map(self.__map_load_and_preprocess_modificated_regions, num_parallel_calls=self.__PARALLEL) \
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
             .prefetch(1)
         return train_ds, val_ds, test_ds, self.__lst.joint_lang
@@ -407,7 +408,7 @@ class DataReader:
         return img, np.int32(width), label, np.int32(len(label)), path, region_id
     
     def __map_load_and_preprocess_modificated_regions(self, image, region, label):
-        return tf.numpy_function(self.__load_and_preprocess_modificated_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
+        return tf.py_func(self.__load_and_preprocess_modificated_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
 
 
 # ===================================================
