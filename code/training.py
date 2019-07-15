@@ -95,14 +95,18 @@ class LstReader:
                         for region in page['regions']:
                             if region['type'] == 'staff' and 'symbols' in region:
                                 self.images.append(page_path)
+
+                                symbols = region['symbols']
+                                symbols.sort(key=lambda symbol: symbol['bounding_box']['fromX'])
                                 if sequence_delimiter:
-                                    self.symbols.append(['<s>'] + [s['agnostic_symbol_type'] for s in region['symbols']] + ['<e>'])
-                                    self.positions.append(['<s>'] + [s["position_in_straff"] for s in region['symbols']] + ['<e>'])
-                                    self.joint.append(['<s>'] + ['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in region['symbols']] + ['<e>'])
+                                    self.symbols.append(['<s>'] + [s['agnostic_symbol_type'] for s in symbols] + ['<e>'])
+                                    self.positions.append(['<s>'] + [s["position_in_straff"] for s in symbols] + ['<e>'])
+                                    self.joint.append(['<s>'] + ['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in symbols] + ['<e>'])
                                 else:
-                                    self.symbols.append([s['agnostic_symbol_type'] for s in region['symbols']])
-                                    self.positions.append([s["position_in_straff"] for s in region['symbols']])
-                                    self.joint.append(['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in region['symbols']])
+                                    self.symbols.append([s['agnostic_symbol_type'] for s in symbols])
+                                    self.positions.append([s["position_in_straff"] for s in symbols])
+                                    self.joint.append(['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in symbols])
+
                                 top, left, bottom, right = region['bounding_box']['fromY'], region['bounding_box']['fromX'], region['bounding_box']['toY'], region['bounding_box']['toX']
                                 region_id = region['id']
                                 self.regions.append([top, bottom, left, right, region_id])
@@ -304,7 +308,7 @@ class DataReader:
             regions_train = regions_train + regions[train_idx:]
             symbols_train = symbols_train + symbols[train_idx:]
             positions_train = positions_train + positions[train_idx:]
-            joint_train = joint_train + positions[train_idx:]
+            joint_train = joint_train + joint[train_idx:]
 
         self.__image_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in images_train], tf.string)
         self.__region_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in regions_train], tf.int32) # Workaround for creating a dataset with sequences of different length
