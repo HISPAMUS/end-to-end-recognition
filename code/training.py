@@ -408,7 +408,10 @@ class DataReader:
         return img, np.int32(width), label, np.int32(len(label)), path, region_id
     
     def __map_load_and_preprocess_modificated_regions(self, image, region, label):
-        return tf.py_func(self.__load_and_preprocess_modificated_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
+        if self.__TRANSFORMATIONS > 1:
+            return tf.py_func(self.__load_and_preprocess_modificated_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
+        else:
+            return tf.py_func(self.__load_and_preprocess_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
 
 
 # ===================================================
@@ -627,7 +630,7 @@ if __name__ == '__main__':
     parser.add_argument('--input-data', dest='data_path', type=str, required=True, help='Path to data file')
     parser.add_argument('--image-height', dest='image_height', type=int, default=64, help='Image size will be reduced to this height')
     parser.add_argument('--channels', dest='channels', type=int, default=1, help='Number of channels in training')
-    parser.add_argument('--image-transformations', dest='image_transformations', type=int, default=4, help='Data augmentation: number or transformations to apply to the images in the training set')
+    parser.add_argument('--image-transformations', dest='image_transformations', type=int, default=1, help='Data augmentation: number or transformations to apply to the images in the training set. Value 1 (default) disables data augmentation')
     parser.add_argument('--sequence-delimiter', dest='sequence_delimiter', default=False, action='store_true', help='Use or not sequence delimiters <s> (start) and <e> (end)')
     parser.add_argument('--test-split', dest='test_split', type=float, default=0.1, help='% of samples for testing')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=16, help='Batch size')
