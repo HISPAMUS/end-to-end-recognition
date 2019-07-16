@@ -14,12 +14,25 @@ class StaffsModificator:
     # Erosion and Dilation
     __params['kernel'] = 4
 
-    def __init__(self, **options):
-        self.__params['rotation_rank'] = options['rotation'] if options.get("rotation") else 0
-        self.__params['random_margin'] = options['margin'] if options.get("margin") else 0
+    def __init__(self, conf_path = None , **options):
+        self.__params['rotation_rank']    = options['rotation']         if options.get("rotation")         else 0
+        self.__params['random_margin']    = options['margin']           if options.get("margin")           else 0
         self.__params['erosion_dilation'] = options['erosion_dilation'] if options.get("erosion_dilation") else False
-        self.__params['contrast'] = options['contrast'] if options.get("contrast") else False
-        self.__params['iterations'] = options['iterations'] if options.get("iterations") else 1
+        self.__params['contrast']         = options['contrast']         if options.get("contrast")         else False
+        self.__params['iterations']       = options['iterations']       if options.get("iterations")       else 0
+
+        if(conf_path != None):
+            self.loadConf(conf_path)
+
+    def loadConf(self, conf_path):
+        with open(conf_path) as json_file:
+            data = json.load(json_file)
+
+            self.__params['rotation_rank']    = data['rotation_rank']    if 'rotation_rank'    in data else self.__params['rotation_rank']
+            self.__params['random_margin']    = data['random_margin']    if 'random_margin'    in data else self.__params['random_margin']
+            self.__params['erosion_dilation'] = data['erosion_dilation'] if 'erosion_dilation' in data else self.__params['erosion_dilation']
+            self.__params['contrast']         = data['contrast']         if 'contrast'         in data else self.__params['contrast']
+            self.__params['iterations']       = data['iterations']       if 'iterations'       in data else self.__params['iterations']
 
     def __getRegion(self, region, rows, cols):
         staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
@@ -56,10 +69,14 @@ class StaffsModificator:
         return int(top), int(bottom), int(left), int(right)
 
     def __apply_random_margins(self, margin, rows, cols, top, bottom, right, left):
-        top     += random.randint(-1 * margin, margin)
-        bottom  += random.randint(-1 * margin, margin)
-        right   += random.randint(-1 * margin, margin)
-        left    += random.randint(-1 * margin, margin)
+        sc = (margin/100) * abs(top - bottom)
+
+        top     += np.random.normal(scale = sc, size = 1)
+        bottom  += np.random.normal(scale = sc, size = 1)
+        right   += np.random.normal(scale = sc, size = 1)
+        left    += np.random.normal(scale = sc, size = 1)
+
+        # Para que no se salga de los margenes de la imagen
 
         top     = max(0, top)
         left    = max(0, left)
@@ -68,9 +85,12 @@ class StaffsModificator:
         top     = min(top, bottom)
         left    = min(left, right)
 
-        return top, bottom, right, left
+        return int(top), int(bottom), int(right), int(left)
 
     def __apply_contrast(self, staff):
+        if(random.randint(0, 1) == 0):
+            return staff
+
         clahe = cv2.createCLAHE(self.__params['clipLimit'])
         lab = cv2.cvtColor(staff, cv2.COLOR_BGR2LAB)
         lab_planes = cv2.split(lab)
@@ -78,6 +98,7 @@ class StaffsModificator:
         lab_planes[0] = clahe.apply(lab_planes[0])
 
         lab = cv2.merge(lab_planes)
+
         return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
     def __apply_erosion_dilation(self, staff):
@@ -300,34 +321,3 @@ class StaffsModificator:
         y_train, y_val = self.__normalize_data(x_train, y_train, x_val, y_val, w2i)
 
         return x_train, y_train, x_val, y_val, w2i, i2w
-
-if __name__ == "__main__":
-    x = []
-    sm = StaffsModificator(rotation = 3, margin = 10, erosion_dilation = True, contrast = False, iterations = 2)
-
-    lines = open("../data/hispamus.lst", 'r').read().splitlines()
-
-    for line in lines:
-        print(line)
-        imag_path, json_path = line.split('\t')
-        img = cv2.imread(imag_path)[:,:,::-1]
-
-        print('Loading', json_path)
-        if img is not None:
-            with open(json_path) as img_json:
-                data = json.load(img_json)
-
-                for page in data['pages']:
-                    if "regions" in page:
-                        for region in page['regions']:
-                            if region['type'] == 'staff' and "symbols" in region:
-                                staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
-
-                                staffs = sm.modify_staff(img, staff_top, staff_bottom, staff_left, staff_right)
-                                for staff in staffs:
-                                    x.append(staff)
-                                
-
-    for im in x:
-        plt.imshow(im)
-        plt.show()
