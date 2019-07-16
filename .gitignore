@@ -3,3 +3,8 @@ Model/
 data/
 tmp/
 .vscode/
+models/
+.ipynb*
+*.ipynb
+.DS_Store
+*.npy
