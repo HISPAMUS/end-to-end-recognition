@@ -142,13 +142,25 @@ class StaffsModificator:
     # Erosion and Dilation
     __params['kernel'] = 4
 
-    def __init__(self, **options):
-        self.__params['rotation_rank'] = options['rotation'] if options.get("rotation") else 0
-        self.__params['random_margin'] = options['margin'] if options.get("margin") else 0
+    def __init__(self, conf_path = None , **options):
+        self.__params['rotation_rank']    = options['rotation']         if options.get("rotation")         else 0
+        self.__params['random_margin']    = options['margin']           if options.get("margin")           else 0
         self.__params['erosion_dilation'] = options['erosion_dilation'] if options.get("erosion_dilation") else False
-        self.__params['contrast'] = options['contrast'] if options.get("contrast") else False
-        self.__params['iterations'] = options['iterations'] if options.get("iterations") else 1
-        self.next = 0
+        self.__params['contrast']         = options['contrast']         if options.get("contrast")         else False
+        self.__params['iterations']       = options['iterations']       if options.get("iterations")       else 0
+
+        if(conf_path != None):
+            self.loadConf(conf_path)
+
+    def loadConf(self, conf_path):
+        with open(conf_path) as json_file:
+            data = json.load(json_file)
+
+            self.__params['rotation_rank']    = data['rotation_rank']    if 'rotation_rank'    in data else self.__params['rotation_rank']
+            self.__params['random_margin']    = data['random_margin']    if 'random_margin'    in data else self.__params['random_margin']
+            self.__params['erosion_dilation'] = data['erosion_dilation'] if 'erosion_dilation' in data else self.__params['erosion_dilation']
+            self.__params['contrast']         = data['contrast']         if 'contrast'         in data else self.__params['contrast']
+            self.__params['iterations']       = data['iterations']       if 'iterations'       in data else self.__params['iterations']
 
     def __getRegion(self, region, rows, cols):
         staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
@@ -278,10 +290,11 @@ class DataReader:
                  validation_split=0.1,
                  batch_size=16,
                  image_transformations=4,
+                 conf_transformations_path=None,
                  parallel=tf.data.experimental.AUTOTUNE):
 
         self.__lst = LstReader(lst_path, sequence_delimiter)
-        self.__augmenter = StaffsModificator(rotation = 3, margin = 10, erosion_dilation = True, contrast = False)
+        self.__augmenter = StaffsModificator(conf_transformations_path)
         self.__TRANSFORMATIONS = image_transformations
         self.__cache = ImageCache()
         self.__IMAGE_HEIGHT = image_height
@@ -639,6 +652,7 @@ if __name__ == '__main__':
     parser.add_argument('--image-height', dest='image_height', type=int, default=64, help='Image size will be reduced to this height')
     parser.add_argument('--channels', dest='channels', type=int, default=1, help='Number of channels in training')
     parser.add_argument('--image-transformations', dest='image_transformations', type=int, default=4, help='Data augmentation: number or transformations to apply to the images in the training set')
+    parser.add_argument('--conf-transformations-path', dest='conf_transformations_path', type=str, default=None, help='Data augmentation: configuration path in json format')
     parser.add_argument('--sequence-delimiter', dest='sequence_delimiter', default=False, action='store_true', help='Use or not sequence delimiters <s> (start) and <e> (end)')
     parser.add_argument('--test-split', dest='test_split', type=float, default=0.1, help='% of samples for testing')
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=16, help='Batch size')
@@ -665,7 +679,8 @@ if __name__ == '__main__':
         sequence_delimiter=FLAGS.sequence_delimiter,
         test_split=FLAGS.test_split,
         batch_size=FLAGS.batch_size,
-        image_transformations=FLAGS.image_transformations)
+        image_transformations=FLAGS.image_transformations,
+        conf_transformations_path = FLAGS.conf_transformations_path)
     
     train_ds, val_ds, test_ds, lang = data_reader.get_joint_data()
     vocabulary_size = len(lang.word2idx)

@@ -19,6 +19,7 @@ class StaffsModificator:
         self.__params['random_margin']    = options['margin']           if options.get("margin")           else 0
         self.__params['erosion_dilation'] = options['erosion_dilation'] if options.get("erosion_dilation") else False
         self.__params['contrast']         = options['contrast']         if options.get("contrast")         else False
+        self.__params['fish_eye']         = options['fish_eye']         if options.get("fish_eye")         else False
         self.__params['iterations']       = options['iterations']       if options.get("iterations")       else 0
 
         if(conf_path != None):
@@ -32,6 +33,7 @@ class StaffsModificator:
             self.__params['random_margin']    = data['random_margin']    if 'random_margin'    in data else self.__params['random_margin']
             self.__params['erosion_dilation'] = data['erosion_dilation'] if 'erosion_dilation' in data else self.__params['erosion_dilation']
             self.__params['contrast']         = data['contrast']         if 'contrast'         in data else self.__params['contrast']
+            self.__params['fish_eye']         = data['fish_eye']         if 'fish_eye'         in data else self.__params['fish_eye']
             self.__params['iterations']       = data['iterations']       if 'iterations'       in data else self.__params['iterations']
 
     def __getRegion(self, region, rows, cols):
@@ -109,6 +111,28 @@ class StaffsModificator:
             return cv2.erode(staff, kernel, iterations=1)
 
         return cv2.dilate(staff, kernel, iterations=1)
+
+    def __apply_fish_eye(self, staff):
+        (staff_rows, staff_cols) = staff.shape[:2]
+
+        average = staff.mean(axis=0).mean(axis=0)
+
+        K = np.array([[  staff_cols/2,     0.,  staff_cols/2],
+                    [    0.,   staff_cols/2,       0],
+                    [    0.,     0.,       1.]])
+
+        D = np.array([0., 0., 0., 0.])
+
+        Knew = K.copy()
+        Knew[(0,1), (0,1)] = 0.4 * Knew[(0,1), (0,1)]
+
+        staff = cv2.fisheye.undistortImage(staff, K, D=D, Knew=Knew)
+        staff = staff[0:int(staff_rows/2), int(staff_cols * 0.18):int(staff_cols * 0.80)]
+
+        staff = np.array(staff)
+        staff[(staff == (0, 0, 0)).all(axis = -1)] = average
+
+        return staff
 
     def __getStaffs2Train(self, rute, val_split):
         num_staffs = 0
@@ -202,6 +226,9 @@ class StaffsModificator:
             if self.__params.get("erosion_dilation") == True:
                 staff = self.__apply_erosion_dilation(staff)
 
+            if self.__params.get("fish_eye") == True:
+                staff = self.__apply_fish_eye(staff)
+
             x.append(staff)
 
         return x
@@ -239,6 +266,9 @@ class StaffsModificator:
 
         if self.__params.get("erosion_dilation") == True:
             staff = self.__apply_erosion_dilation(staff)
+
+        if self.__params.get("fish_eye") == True:
+                staff = self.__apply_fish_eye(staff)
         
         return staff
 
