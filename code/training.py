@@ -317,55 +317,26 @@ class DataReader:
         self.__position_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in positions_train], tf.int32)
         self.__joint_train_ds = tf.data.Dataset.from_generator(lambda: [(yield _) for _ in joint_train], tf.int32)
 
-    def get_symbol_data(self):
-        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape(()), tf.TensorShape(()), tf.TensorShape(()))
-        test_ds = tf.data.Dataset.zip((self.__image_test_ds, self.__region_test_ds, self.__symbol_test_ds)) \
+    def get_data(self):
+        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape([None]), tf.TensorShape([None]), tf.TensorShape(()), tf.TensorShape(()), tf.TensorShape(()))
+        test_ds = tf.data.Dataset.zip((self.__image_test_ds, self.__region_test_ds, self.__symbol_test_ds, self.__position_test_ds, self.__joint_test_ds)) \
             .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, -1, -1, 0, '', 0)) \
             .prefetch(1)
-        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__symbol_val_ds)) \
+        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__symbol_val_ds, self.__position_val_ds, self.__position_val_ds)) \
             .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, -1, -1, 0, '', 0)) \
             .prefetch(1)
-        train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__symbol_train_ds)) \
+        train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__symbol_train_ds, self.__position_train_ds, self.__joint_train_ds)) \
             .map(self.__map_load_and_preprocess_modificated_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
+            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, -1, -1, 0, '', 0)) \
             .prefetch(1)
-        return train_ds, val_ds, test_ds, self.__lst.symbol_lang
+        return train_ds, val_ds, test_ds
+    
+    def get_dictionaries(self):
+        return self.__lst.symbol_lang, self.__lst.position_lang, self.__lst.joint_lang
 
-    def get_position_data(self):
-        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape(()), tf.TensorShape(()), tf.TensorShape(()))
-        test_ds = tf.data.Dataset.zip((self.__image_test_ds, self.__region_test_ds, self.__position_test_ds)) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
-            .prefetch(1)
-        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__position_val_ds)) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
-            .prefetch(1)
-        train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__position_train_ds)) \
-            .map(self.__map_load_and_preprocess_modificated_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
-            .prefetch(1)
-        return train_ds, val_ds, test_ds, self.__lst.position_lang
-
-    def get_joint_data(self):
-        shapes = (tf.TensorShape([self.__IMAGE_HEIGHT, None, 1]), tf.TensorShape(()), tf.TensorShape([None]), tf.TensorShape(()), tf.TensorShape(()), tf.TensorShape(()))
-        test_ds = tf.data.Dataset.zip((self.__image_test_ds, self.__region_test_ds, self.__joint_test_ds)) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
-            .prefetch(1)
-        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__joint_val_ds)) \
-            .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
-            .prefetch(1)
-        train_ds = tf.data.Dataset.zip((self.__image_train_ds, self.__region_train_ds, self.__joint_train_ds)) \
-            .map(self.__map_load_and_preprocess_modificated_regions, num_parallel_calls=self.__PARALLEL) \
-            .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, 0, '', 0)) \
-            .prefetch(1)
-        return train_ds, val_ds, test_ds, self.__lst.joint_lang
-
-    def __load_and_preprocess_regions(self, path, region, label):
+    def __load_and_preprocess_regions(self, path, region, symbol, position, joint):
         #print('Loading region {}[{}]'.format(path, region))
         page_image = self.__cache.read_image(path.decode())
         top, bottom, left, right, region_id = region
@@ -382,12 +353,12 @@ class DataReader:
 
         # (image, image_width, symbol_sequence, symbol_sequence_length, page_path, region_id)
         # page_path & region_id are included for debugging purposes
-        return img, np.int32(width), label, np.int32(len(label)), path, region_id
+        return img, np.int32(width), symbol, position, joint, np.int32(len(symbol)), path, region_id
     
-    def __map_load_and_preprocess_regions(self, image, region, label):
-        return tf.py_func(self.__load_and_preprocess_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
+    def __map_load_and_preprocess_regions(self, image, region, symbol, position, joint):
+        return tf.py_func(self.__load_and_preprocess_regions, [image, region, symbol, position, joint], [tf.float32, tf.int32, tf.int32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
 
-    def __load_and_preprocess_modificated_regions(self, path, region, label):
+    def __load_and_preprocess_modificated_regions(self, path, region, symbol, position, joint):
         #print('Loading region {}[{}]'.format(path, region))
         page_image = self.__cache.read_image(path.decode())
         top, bottom, left, right, region_id = region
@@ -405,13 +376,13 @@ class DataReader:
 
         # (image, image_width, symbol_sequence, symbol_sequence_length, page_path, region_id)
         # page_path & region_id are included for debugging purposes
-        return img, np.int32(width), label, np.int32(len(label)), path, region_id
+        return img, np.int32(width), symbol, position, joint, np.int32(len(symbol)), path, region_id
     
-    def __map_load_and_preprocess_modificated_regions(self, image, region, label):
+    def __map_load_and_preprocess_modificated_regions(self, image, region, symbol, position, joint):
         if self.__TRANSFORMATIONS > 1:
-            return tf.py_func(self.__load_and_preprocess_modificated_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
+            return tf.py_func(self.__load_and_preprocess_modificated_regions, [image, region, symbol, position, joint], [tf.float32, tf.int32, tf.int32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
         else:
-            return tf.py_func(self.__load_and_preprocess_regions, [image, region, label], [tf.float32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
+            return tf.py_func(self.__load_and_preprocess_regions, [image, region, symbol, position, joint], [tf.float32, tf.int32, tf.int32, tf.int32, tf.int32, tf.int32, tf.string, tf.int32])
 
 
 # ===================================================
@@ -424,7 +395,7 @@ def leaky_relu(features, alpha=0.2, name=None):
     return math_ops.maximum(alpha * features, features)
 
 
-def default_model_params(img_height, img_channels, vocabulary_size, batch_size):
+def default_model_params(img_height, img_channels, vocabulary_sizes, batch_size):
     params = dict()
     params['img_height'] = img_height
     params['img_width'] = None
@@ -436,7 +407,7 @@ def default_model_params(img_height, img_channels, vocabulary_size, batch_size):
     params['conv_pooling_size'] = [[2, 2], [2, 1], [2, 1], [2, 1]]
     params['rnn_units'] = 256
     params['rnn_layers'] = 2
-    params['vocabulary_size'] = vocabulary_size
+    params['vocabulary_sizes'] = vocabulary_sizes
 
     width_reduction = 1
     for i in range(params['conv_blocks']):
@@ -447,21 +418,10 @@ def default_model_params(img_height, img_channels, vocabulary_size, batch_size):
     return params
 
 
-def crnn(params):
-    input = tf.placeholder(shape=(None,
-                                  params['img_height'],
-                                  params['img_width'],
-                                  params['img_channels']),  # [batch, height, width, channels]
-                           dtype=tf.float32,
-                           name='model_input')
-
-    input_shape = tf.shape(input)
-
+def cnn_block(x, params):
+    # Convolutional blocks
     width_reduction = 1
     height_reduction = 1
-
-    # Convolutional blocks
-    x = input
     for i in range(params['conv_blocks']):
         x = tf.layers.conv2d(
             inputs=x,
@@ -482,59 +442,129 @@ def crnn(params):
         width_reduction = width_reduction * params['conv_pooling_size'][i][1]
         height_reduction = height_reduction * params['conv_pooling_size'][i][0]
 
-    # Prepare output of conv block for recurrent blocks
-    features = tf.transpose(x, perm=[2, 0, 3, 1])  # -> [width, batch, height, channels] (time_major=True)
-    feature_dim = params['conv_filter_n'][-1] * (params['img_height'] / height_reduction)
-    feature_width = input_shape[2] // width_reduction
-    features = tf.reshape(features, tf.stack([tf.cast(feature_width, 'int32'), input_shape[0],
-                                              tf.cast(feature_dim, 'int32')]))  # -> [width, batch, features]
+    return x, width_reduction, height_reduction
 
-    tf.constant(params['img_height'], name='input_height')
-    tf.constant(width_reduction, name='width_reduction')
 
+def rnn_block(x, placeholders, params, vocabulary_index):
     # Recurrent block
-    rnn_keep_prob = tf.placeholder(dtype=tf.float32, name="keep_prob")
     rnn_hidden_units = params['rnn_units']
     rnn_hidden_layers = params['rnn_layers']
 
     rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
         tf.contrib.rnn.MultiRNNCell(
             [tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.LSTMCell(rnn_hidden_units),
-                                           input_keep_prob=rnn_keep_prob)
+                                           input_keep_prob=placeholders['keep_prob'])
              for _ in range(rnn_hidden_layers)]),
         tf.contrib.rnn.MultiRNNCell(
             [tf.nn.rnn_cell.DropoutWrapper(tf.nn.rnn_cell.LSTMCell(rnn_hidden_units),
-                                           input_keep_prob=rnn_keep_prob)
+                                           input_keep_prob=placeholders['keep_prob'])
              for _ in range(rnn_hidden_layers)]),
-        features,
+        x,
         dtype=tf.float32,
         time_major=True,
     )
 
     rnn_outputs = tf.concat(rnn_outputs, 2)
 
-    logits = tf.layers.dense(rnn_outputs, params['vocabulary_size']+1) # +1 because of 'blank' CTC
+    logits = tf.layers.dense(rnn_outputs, params['vocabulary_sizes'][vocabulary_index]+1) # +1 because of 'blank' CTC
 
     # Add softmax!
     softmax = tf.nn.softmax(logits)
     
-    tf.add_to_collection("softmax", softmax) # for restoring purposes
-    tf.add_to_collection("logits", logits)  # for restoring purposes
+    #tf.add_to_collection("softmax", softmax) # for restoring purposes
+    #tf.add_to_collection("logits", logits)  # for restoring purposes
 
     # CTC Loss computation
-    seq_len = tf.placeholder(tf.int32, [None], name='seq_lengths') # Real length of the image
     targets = tf.sparse_placeholder(dtype=tf.int32, name='target')
-    ctc_loss = tf.nn.ctc_loss(labels=targets, inputs=logits, sequence_length=seq_len, time_major=True)
+    ctc_loss = tf.nn.ctc_loss(labels=targets, inputs=logits, sequence_length=placeholders['seq_len'], time_major=True)
     loss = tf.reduce_mean(ctc_loss)
 
 
-    return {'input': input,
-            'seq_len': seq_len,
-            'target': targets,
+    return {'target': targets,
             'logits': logits,
             'softmax':softmax,
             'loss': loss,
-            'keep_prob': rnn_keep_prob}
+            'rnn_outputs': rnn_outputs}
+
+
+def model(params):
+    placeholders = {}
+
+    input = tf.placeholder(shape=(None,
+                                  params['img_height'],
+                                  params['img_width'],
+                                  params['img_channels']),  # [batch, height, width, channels]
+                           dtype=tf.float32,
+                           name='model_input')
+
+    seq_len = tf.placeholder(tf.int32, [None], name='seq_lengths') # Real length of the image    
+    rnn_keep_prob = tf.placeholder(dtype=tf.float32, name="keep_prob")
+    
+    placeholders['input'] = input
+    placeholders['seq_len'] = seq_len
+    placeholders['keep_prob'] = rnn_keep_prob
+
+    input_shape = tf.shape(input)
+
+    with tf.variable_scope('symbol'):
+        # Convolutional blocks
+        x, width_reduction, height_reduction = cnn_block(input, params)
+
+        # Prepare output of conv block for recurrent blocks
+        features = tf.transpose(x, perm=[2, 0, 3, 1])  # -> [width, batch, height, channels] (time_major=True)
+        feature_dim = params['conv_filter_n'][-1] * (params['img_height'] / height_reduction)
+        feature_width = input_shape[2] // width_reduction
+        features = tf.reshape(features, tf.stack([tf.cast(feature_width, 'int32'), input_shape[0],
+                                                tf.cast(feature_dim, 'int32')]))  # -> [width, batch, features]
+
+        # Used for prediction
+        #tf.constant(params['img_height'], name='input_height')
+        #tf.constant(width_reduction, name='width_reduction')
+
+        placeholders['symbol'] = rnn_block(features, placeholders, params, 0)
+
+    with tf.variable_scope('position'):
+        # Convolutional blocks
+        x, width_reduction, height_reduction = cnn_block(input, params)
+
+        # Prepare output of conv block for recurrent blocks
+        features = tf.transpose(x, perm=[2, 0, 3, 1])  # -> [width, batch, height, channels] (time_major=True)
+        feature_dim = params['conv_filter_n'][-1] * (params['img_height'] / height_reduction)
+        feature_width = input_shape[2] // width_reduction
+        features = tf.reshape(features, tf.stack([tf.cast(feature_width, 'int32'), input_shape[0],
+                                                tf.cast(feature_dim, 'int32')]))  # -> [width, batch, features]
+
+        # Used for prediction
+        #tf.constant(params['img_height'], name='input_height')
+        #tf.constant(width_reduction, name='width_reduction')
+
+        placeholders['position'] = rnn_block(features, placeholders, params, 1)
+    
+    with tf.variable_scope('joint'):
+        rnn_outputs = (placeholders['symbol']['rnn_outputs'], placeholders['position']['rnn_outputs'])
+        rnn_outputs = tf.concat(rnn_outputs, 2)
+
+        logits = tf.layers.dense(rnn_outputs, params['vocabulary_sizes'][2]+1) # +1 because of 'blank' CTC
+
+        # Add softmax!
+        softmax = tf.nn.softmax(logits)
+        
+        #tf.add_to_collection("softmax", softmax) # for restoring purposes
+        #tf.add_to_collection("logits", logits)  # for restoring purposes
+
+        # CTC Loss computation
+        targets = tf.sparse_placeholder(dtype=tf.int32, name='target')
+        ctc_loss = tf.nn.ctc_loss(labels=targets, inputs=logits, sequence_length=placeholders['seq_len'], time_major=True)
+        loss = tf.reduce_mean(ctc_loss)
+        
+        placeholders['joint'] = {}
+        placeholders['joint']['target'] = targets
+        placeholders['joint']['logits'] = logits
+        placeholders['joint']['softmax'] = softmax
+        placeholders['joint']['loss'] = loss
+
+
+    return placeholders
 
 
 def save_vocabulary(filepath, vocabulary):
@@ -659,22 +689,34 @@ if __name__ == '__main__':
         batch_size=FLAGS.batch_size,
         image_transformations=FLAGS.image_transformations)
     
-    train_ds, val_ds, test_ds, lang = data_reader.get_joint_data()
-    vocabulary_size = len(lang.word2idx)
+    train_ds, val_ds, test_ds = data_reader.get_data()
+    symbol_lang, position_lang, joint_lang = data_reader.get_dictionaries()
+    vocabulary_sizes = (
+        len(symbol_lang.word2idx),
+        len(position_lang.word2idx),
+        len(joint_lang.word2idx)
+    )
 
     print('Done')
 
     # ===============================================
     # Setting params
-    params = default_model_params(FLAGS.image_height, FLAGS.channels, vocabulary_size, FLAGS.batch_size)
+    params = default_model_params(FLAGS.image_height, FLAGS.channels, vocabulary_sizes, FLAGS.batch_size)
 
     # ===============================================
     # CRNN
     print("Creating model...")
        
-    crnn_placeholders = crnn(params)
-    optimizer = tf.train.AdamOptimizer().minimize(crnn_placeholders['loss'])
-    decoder, log_prob = tf.nn.ctc_greedy_decoder(crnn_placeholders['logits'], crnn_placeholders['seq_len'])
+    model_placeholders = model(params)
+
+    optimizer_symbol = tf.train.AdamOptimizer().minimize(model_placeholders['symbol']['loss'])
+    decoder_symbol, log_prob_symbol = tf.nn.ctc_greedy_decoder(model_placeholders['symbol']['logits'], model_placeholders['seq_len'])
+
+    optimizer_position = tf.train.AdamOptimizer().minimize(model_placeholders['position']['loss'])
+    decoder_position, log_prob_position = tf.nn.ctc_greedy_decoder(model_placeholders['position']['logits'], model_placeholders['seq_len'])
+
+    optimizer_joint = tf.train.AdamOptimizer().minimize(model_placeholders['joint']['loss'])
+    decoder_joint, log_prob_joint = tf.nn.ctc_greedy_decoder(model_placeholders['joint']['logits'], model_placeholders['seq_len'])
 
     print("Done")
 
@@ -687,7 +729,7 @@ if __name__ == '__main__':
     saver = tf.train.Saver(max_to_keep=None)
     sess.run(tf.global_variables_initializer())
 
-    for epoch in range(FLAGS.epochs):
+    for epoch in range(1, FLAGS.epochs+1):
         print("Epoch {}/{}".format(epoch, FLAGS.epochs))
 
         it_train = train_ds.make_one_shot_iterator()
@@ -695,26 +737,31 @@ if __name__ == '__main__':
         batch = 1
         while True:
             try:
-                X_train_batch, XL_train_batch, Y_train_batch, YL_train_batch, _, _ = sess.run(next_batch)
+                X_train_batch, XL_train_batch, Y_symbol_train_batch, Y_position_train_batch, Y_joint_train_batch, YL_train_batch, _, _ = sess.run(next_batch)
                 XL_train_batch = [length // params['width_reduction'] for length in XL_train_batch]
-                Y_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_train_batch)]
+                Y_symbol_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_symbol_train_batch)]
+                Y_position_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_position_train_batch)]
+                Y_joint_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_joint_train_batch)]
 
                 print('Batch {}: {} samples'.format(batch, len(X_train_batch)))
 
                 # Deal with empty staff sections
                 for idx, _ in enumerate(X_train_batch):
                     if YL_train_batch[idx] == 0:
-                        Y_train_batch[idx] = [vocabulary_size]  # Blank CTC
+                        Y_symbol_train_batch[idx] = [vocabulary_sizes[0]]  # Blank CTC
+                        Y_position_train_batch[idx] = [vocabulary_sizes[1]]  # Blank CTC
+                        Y_joint_train_batch[idx] = [vocabulary_sizes[2]]  # Blank CTC
                         YL_train_batch[idx] = 1
 
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
                 with tf.control_dependencies(update_ops):
-                    _ = sess.run(optimizer, 
+                    _, _ = sess.run([optimizer_symbol, optimizer_position], 
                                 {
-                                    crnn_placeholders['input']: X_train_batch,
-                                    crnn_placeholders['seq_len']: XL_train_batch,
-                                    crnn_placeholders['target']: sparse_tuple_from(Y_train_batch),
-                                    crnn_placeholders['keep_prob']: 0.75
+                                    model_placeholders['input']: X_train_batch,
+                                    model_placeholders['seq_len']: XL_train_batch,
+                                    model_placeholders['symbol']['target']: sparse_tuple_from(Y_symbol_train_batch),
+                                    model_placeholders['position']['target']: sparse_tuple_from(Y_position_train_batch),
+                                    model_placeholders['keep_prob']: 0.75
                                 }
                                 )
 
@@ -724,41 +771,61 @@ if __name__ == '__main__':
         
         # Validation
         if epoch % 5 == 0:
-            acc_ed = 0
-            acc_count = 0
-            acc_len = 0
+            acc_symbol_ed = 0
+            acc_symbol_count = 0
+            acc_symbol_len = 0
+
+            acc_position_ed = 0
+            acc_position_count = 0
+            acc_position_len = 0
 
             it_val = val_ds.make_one_shot_iterator()
             next_batch = it_val.get_next()
             while True:
                 try:
-                    X_val_batch, XL_val_batch, Y_val_batch, YL_val_batch, _, _ = sess.run(next_batch)
+                    X_val_batch, XL_val_batch, Y_symbol_val_batch, Y_position_val_batch, Y_joint_val_batch, YL_val_batch, _, _ = sess.run(next_batch)
                     XL_val_batch = [length // params['width_reduction'] for length in XL_val_batch]
-                    Y_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_val_batch)]
+                    Y_symbol_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_symbol_val_batch)]
+                    Y_position_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_position_val_batch)]
+                    Y_joint_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_joint_val_batch)]
 
-                    pred = sess.run(decoder,
-                                    {
-                                        crnn_placeholders['input']: X_val_batch,
-                                        crnn_placeholders['seq_len']: XL_val_batch,
-                                        crnn_placeholders['keep_prob']: 1.0,
-                                    }
-                                )
+                    pred_symbol, pred_position = sess.run([decoder_symbol, decoder_position],
+                        {
+                            model_placeholders['input']: X_val_batch,
+                            model_placeholders['seq_len']: XL_val_batch,
+                            model_placeholders['keep_prob']: 1.0,
+                        }
+                    )
 
-                    sequence = sparse_tensor_to_strs(pred)
-                    for i in range(len(sequence)):                    
-                        h = [ lang.idx2word[w] for w in sequence[i] ]
-                        y = [ lang.idx2word[w] for w in Y_val_batch[i] ]
+                    sequence_symbol = sparse_tensor_to_strs(pred_symbol)
+                    for i in range(len(sequence_symbol)):                    
+                        h = [ symbol_lang.idx2word[w] for w in sequence_symbol[i] ]
+                        y = [ symbol_lang.idx2word[w] for w in Y_symbol_val_batch[i] ]
 
                         print("Y:{}".format(y)) # ************
                         print("H:{}".format(h)) # ************
                         
-                        acc_ed += edit_distance(h, y)
-                        acc_len += len(y)
-                        acc_count += 1
+                        acc_symbol_ed += edit_distance(h, y)
+                        acc_symbol_len += len(y)
+                        acc_symbol_count += 1
+
+                    sequence_position = sparse_tensor_to_strs(pred_position)
+                    for i in range(len(sequence_symbol)):                    
+                        h = [ position_lang.idx2word[w] for w in sequence_position[i] ]
+                        y = [ position_lang.idx2word[w] for w in Y_position_val_batch[i] ]
+
+                        print("Y:{}".format(y)) # ************
+                        print("H:{}".format(h)) # ************
+                        
+                        acc_position_ed += edit_distance(h, y)
+                        acc_position_len += len(y)
+                        acc_position_count += 1
+
                 except tf.errors.OutOfRangeError:
                     break
 
-            print('Epoch {} - SER: {} - From {} samples'.format(epoch, str(100. * acc_ed / acc_len), acc_count))
+            print('Epoch {} - symbol SER: {} - From {} samples'.format(epoch, str(100. * acc_symbol_ed / acc_symbol_len), acc_symbol_count))
+            print('Epoch {} - position SER: {} - From {} samples'.format(epoch, str(100. * acc_position_ed / acc_position_len), acc_position_count))
             
             if epoch % 5 == 0:
                 if FLAGS.save_model is not None:
