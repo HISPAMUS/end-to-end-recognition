@@ -3,6 +3,7 @@ import cv2
 import json
 import random
 import numpy as np
+from time import time
 
 class StaffsModificator:
     __params = dict()
@@ -55,7 +56,7 @@ class StaffsModificator:
         point[0] += center[0]
         point[1] += center[1]
 
-        return point
+        return  [int(point[0]), int(point[1])]
 
     def __rotate_points(self, M, center, top, bottom, left, right):
         left_top     = self.__rotate_point(M, center, [left, top])
@@ -233,6 +234,153 @@ class StaffsModificator:
 
         return x
     
+    def testMethods(self, image, top, bottom, left, right, testIterations):
+        (rows, cols) = image.shape[:2]
+
+        print("Calculando pad de la imagen")
+        #----------------------------------------------------------------------------------------------------------
+        start_time = time()
+        for _ in range(testIterations):
+            img = np.pad(image, ((int(cols * self.__params['pad']),), (int(rows * self.__params['pad']),), (0,)), 'mean')
+        print(str(time() - start_time) + " segundos")
+        #----------------------------------------------------------------------------------------------------------
+
+        (new_rows, new_cols) = img.shape[:2]
+        center = (int(new_cols/2), int(new_rows/2))
+
+        top     += int(cols * self.__params['pad'])
+        bottom  += int(cols * self.__params['pad'])
+        right   += int(rows * self.__params['pad'])
+        left    += int(rows * self.__params['pad'])
+
+        if self.__params.get("rotation_rank"):
+                angle = 5
+        else:
+            angle = 0
+
+        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+        print("Calculando rotacion de la imagen entera")
+        #----------------------------------------------------------------------------------------------------------
+        start_time = time()
+        for _ in range(testIterations):
+            image = cv2.warpAffine(img, M, (new_cols, new_rows))
+        print(str(time() - start_time) + " segundos")
+        #----------------------------------------------------------------------------------------------------------
+
+        M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
+        top, bottom, left, right = self.__rotate_points(M, center, top, bottom, left, right)
+
+        if self.__params.get("random_margin"):
+            top, bottom, right, left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, top, bottom, right, left)
+
+        staff = image[top:bottom, left:right]
+
+        if self.__params.get("contrast") == True:
+            #print("Calculando contraste del pentagrama")
+            #----------------------------------------------------------------------------------------------------------
+            #start_time = time()
+            #for _ in range(testIterations):
+            staff = self.__apply_contrast(staff)
+            #print(str(time() - start_time) + " segundos")
+            #----------------------------------------------------------------------------------------------------------
+
+        if self.__params.get("erosion_dilation") == True:
+            #print("Calculando ero/dila del pentagrama")
+            #----------------------------------------------------------------------------------------------------------
+            #start_time = time()
+            #for _ in range(testIterations):
+            staff = self.__apply_erosion_dilation(staff)
+            #print(str(time() - start_time) + " segundos")
+            #----------------------------------------------------------------------------------------------------------
+
+        if self.__params.get("fish_eye") == True:
+            #print("Calculando ojo de pez del pentagrama")
+            #----------------------------------------------------------------------------------------------------------
+            #start_time = time()
+            #for _ in range(testIterations):
+            staff = self.__apply_fish_eye(staff)
+            #print(str(time() - start_time) + " segundos")
+            #----------------------------------------------------------------------------------------------------------
+        
+        return staff
+
+    def testNewRotation(self, image, top, bottom, left, right, testIterations):
+        (rows, cols) = image.shape[:2]
+        center = (int(cols/2), int(rows/2))
+
+        if self.__params.get("random_margin"):
+            top, bottom, right, left = self.__apply_random_margins(self.__params['random_margin'], rows, cols, top, bottom, right, left)
+
+        #=============================================================================================================================================
+
+        angle = 5 if self.__params.get("rotation_rank") else 0
+
+        cv2.circle(image,(left, top),3,(255,0,0),30)
+        cv2.circle(image,(left, bottom),3,(255,0,0),30)
+        cv2.circle(image,(right, top),3,(255,0,0),30)
+        cv2.circle(image,(right, bottom),3,(255,0,0),30)
+
+        M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
+        r_top, r_bottom, r_left, r_right = self.__rotate_points(M, center, top, bottom, left, right)
+
+        cv2.circle(image,(r_left, r_top),3,(0,0,255),30)
+        cv2.circle(image,(r_left, r_bottom),3,(0,0,255),30)
+        cv2.circle(image,(r_right, r_top),3,(0,0,255),30)
+        cv2.circle(image,(r_right, r_bottom),3,(0,0,255),30)
+        
+        test = np.zeros((r_bottom - r_top, r_right - r_left, 3))
+        print(image)
+        for idx_x in range(r_top, r_bottom):
+            for idx_y in range(r_left, r_right):
+                print([idx_x + r_top, idx_y + r_left])
+                point = self.__rotate_point(M, center, [idx_x + r_top, idx_y + r_left])
+                print(point)
+                if(point[0] > 0 and point[0] < cols and point[1] > 0 and point[1] < rows):
+                    print("Entro")
+                    print(image[point[0], point[1]])
+                    test[idx_y][idx_x][0] = image[point[0], point[1]][0]
+                    test[idx_y][idx_x][1] = image[point[0], point[1]][1]
+                    test[idx_y][idx_x][2] = image[point[0], point[1]][2]
+
+        plt.imshow(test)
+        plt.show()
+
+        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+        #=============================================================================================================================================
+
+        staff = image[top:bottom, left:right]
+
+        if self.__params.get("contrast") == True:
+            #print("Calculando contraste del pentagrama")
+            #----------------------------------------------------------------------------------------------------------
+            #start_time = time()
+            #for _ in range(testIterations):
+            staff = self.__apply_contrast(staff)
+            #print(str(time() - start_time) + " segundos")
+            #----------------------------------------------------------------------------------------------------------
+
+        if self.__params.get("erosion_dilation") == True:
+            #print("Calculando ero/dila del pentagrama")
+            #----------------------------------------------------------------------------------------------------------
+            #start_time = time()
+            #for _ in range(testIterations):
+            staff = self.__apply_erosion_dilation(staff)
+            #print(str(time() - start_time) + " segundos")
+            #----------------------------------------------------------------------------------------------------------
+
+        if self.__params.get("fish_eye") == True:
+            #print("Calculando ojo de pez del pentagrama")
+            #----------------------------------------------------------------------------------------------------------
+            #start_time = time()
+            #for _ in range(testIterations):
+            staff = self.__apply_fish_eye(staff)
+            #print(str(time() - start_time) + " segundos")
+            #----------------------------------------------------------------------------------------------------------
+        
+        return staff
+
     def get_one_staff_modification(self, img, top, bottom, left, right):
         print("Modificando...")
         (rows, cols) = img.shape[:2]
@@ -268,10 +416,9 @@ class StaffsModificator:
             staff = self.__apply_erosion_dilation(staff)
 
         if self.__params.get("fish_eye") == True:
-                staff = self.__apply_fish_eye(staff)
+            staff = self.__apply_fish_eye(staff)
         
         return staff
-
 
     def get_train_val_staffs(self, rute, val_split = 0.1):
         idx = self.__getStaffs2Train(rute, val_split)
@@ -351,3 +498,36 @@ class StaffsModificator:
         y_train, y_val = self.__normalize_data(x_train, y_train, x_val, y_val, w2i)
 
         return x_train, y_train, x_val, y_val, w2i, i2w
+
+
+if __name__ == "__main__":
+    x = []
+    sm = StaffsModificator(rotation = 3, margin = 0, erosion_dilation = False, contrast = False)
+
+    lines = open("../data/hispamus.lst", 'r').read().splitlines()
+
+    for line in lines:
+        imag_path, json_path = line.split('\t')
+        img = cv2.imread(imag_path)
+
+        print('Loading', json_path)
+        if img is not None:
+            with open(json_path) as img_json:
+                data = json.load(img_json)
+
+                for page in data['pages']:
+                    if "regions" in page:
+                        for region in page['regions']:
+                            if region['type'] == 'staff' and "symbols" in region:
+                                staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
+
+                                iteraciones = 20
+                                x.append(sm.testMethods(img, staff_top, staff_bottom, staff_left, staff_right, iteraciones))
+                                #x.append(sm.testNewRotation(img, staff_top, staff_bottom, staff_left, staff_right, iteraciones))
+                                break
+                        break
+            break
+
+    for img in x:
+        plt.imshow(img)
+        plt.show()

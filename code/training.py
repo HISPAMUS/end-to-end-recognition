@@ -39,6 +39,7 @@ class ImageCache:
             image = self.__images[path]
         else:
             image = cv2.imread(path, True)
+            image = StaffsModificator.aply_pad(image)
             self.__images[path] = image
         self.__lock.release()
         return image
@@ -162,15 +163,12 @@ class StaffsModificator:
             self.__params['contrast']         = data['contrast']         if 'contrast'         in data else self.__params['contrast']
             self.__params['iterations']       = data['iterations']       if 'iterations'       in data else self.__params['iterations']
 
-    def __getRegion(self, region, rows, cols):
-        staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
+    @staticmethod
+    def aply_pad(image):
+        (rows, cols) = image.shape[:2]
+        image = np.pad(image, ((round(cols * 0.1),), (round(rows * 0.1),), (0,)), 'mean')
 
-        staff_top     += int(cols * self.__params['pad'])
-        staff_bottom  += int(cols * self.__params['pad'])
-        staff_right   += int(rows * self.__params['pad'])
-        staff_left    += int(rows * self.__params['pad'])
-
-        return staff_top, staff_left, staff_bottom, staff_right
+        return image
 
     def __rotate_point(self, M, center, point):
         point[0] -= center[0]
@@ -194,7 +192,7 @@ class StaffsModificator:
         left    = min(left_top[0], left_bottom[0])
         right   = max(right_top[0], right_bottom[0])
 
-        return int(top), int(bottom), int(left), int(right)
+        return round(top), round(bottom), round(left), round(right)
 
     def __apply_random_margins(self, margin, rows, cols, top, bottom, right, left):
         sc = (margin/100) * abs(top - bottom)
@@ -238,33 +236,27 @@ class StaffsModificator:
 
         return cv2.dilate(staff, kernel, iterations=1)
 
-    def apply(self, img, top, bottom, left, right):
-        #print("Modificando...")
-        #self.next += 1
+    def apply(self, img, img_top, img_bottom, img_left, img_right):
+        cv2.imwrite('test.jpg', img)
 
         (rows, cols) = img.shape[:2]
-        img = np.pad(img, ((int(cols * self.__params['pad']),), (int(rows * self.__params['pad']),), (0,)), 'mean')
-        (new_rows, new_cols) = img.shape[:2]
-        center = (int(new_cols/2), int(new_rows/2))
+        center = (round(cols/2), round(rows/2))
 
-        top     += int(cols * self.__params['pad'])
-        bottom  += int(cols * self.__params['pad'])
-        right   += int(rows * self.__params['pad'])
-        left    += int(rows * self.__params['pad'])
+        top     = round(cols / 12 + img_top)
+        bottom  = round(cols / 12 + img_bottom)
+        right   = round(rows / 12 + img_right)
+        left    = round(rows / 12 + img_left)
 
-        if self.__params.get("rotation_rank"):
-                angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank'])
-        else:
-            angle = 0
+        angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank']) if self.__params.get("rotation_rank") else 0
 
         M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        image = cv2.warpAffine(img, M, (new_cols, new_rows))
+        image = cv2.warpAffine(img, M, (cols, rows))
 
         M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
         top, bottom, left, right = self.__rotate_points(M, center, top, bottom, left, right)
 
         if self.__params.get("random_margin"):
-            top, bottom, right, left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, top, bottom, right, left)
+            top, bottom, right, left = self.__apply_random_margins(self.__params['random_margin'], rows, cols, top, bottom, right, left)
 
         staff = image[top:bottom, left:right]
 
@@ -273,6 +265,8 @@ class StaffsModificator:
 
         if self.__params.get("erosion_dilation") == True:
             staff = self.__apply_erosion_dilation(staff)
+
+        cv2.imwrite('stafftest.jpg', staff)
 
         return staff
 
@@ -291,7 +285,7 @@ class DataReader:
                  batch_size=16,
                  image_transformations=4,
                  conf_transformations_path=None,
-                 parallel=tf.data.experimental.AUTOTUNE):
+                 parallel=1):
 
         self.__lst = LstReader(lst_path, sequence_delimiter)
         self.__augmenter = StaffsModificator(conf_transformations_path)
