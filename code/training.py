@@ -327,7 +327,7 @@ class DataReader:
             .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, -1, -1, 0, '', 0)) \
             .prefetch(1)
-        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__symbol_val_ds, self.__position_val_ds, self.__position_val_ds)) \
+        val_ds = tf.data.Dataset.zip((self.__image_val_ds, self.__region_val_ds, self.__symbol_val_ds, self.__position_val_ds, self.__joint_val_ds)) \
             .map(self.__map_load_and_preprocess_regions, num_parallel_calls=self.__PARALLEL) \
             .padded_batch(self.__BATCH_SIZE, padded_shapes=shapes, padding_values=(0., 0, -1, -1, -1, 0, '', 0)) \
             .prefetch(1)
@@ -493,9 +493,7 @@ def rnn_block(x, placeholders, params, vocabulary_index):
             'rnn_outputs': rnn_outputs}
 
 
-def model(params, freeze=0):
-    assert freeze>=0 and freeze<=2
-
+def model(params):
     placeholders = {}
 
     input = tf.placeholder(shape=(None,
@@ -529,9 +527,6 @@ def model(params, freeze=0):
         #tf.constant(params['img_height'], name='input_height')
         #tf.constant(width_reduction, name='width_reduction')
 
-        if freeze == 1:
-            features = tf.stop_gradient(features)
-
         placeholders['symbol'] = rnn_block(features, placeholders, params, 0)
 
     with tf.variable_scope('position'):
@@ -549,17 +544,12 @@ def model(params, freeze=0):
         #tf.constant(params['img_height'], name='input_height')
         #tf.constant(width_reduction, name='width_reduction')
 
-        if freeze == 1:
-            features = tf.stop_gradient(features)
-
         placeholders['position'] = rnn_block(features, placeholders, params, 1)
     
     with tf.variable_scope('joint'):
         rnn_outputs = (placeholders['symbol']['rnn_outputs'], placeholders['position']['rnn_outputs'])
         rnn_outputs = tf.concat(rnn_outputs, 2)
-
-        if freeze == 2:
-            rnn_outputs = tf.stop_gradient(rnn_outputs)
+        rnn_outputs = tf.stop_gradient(rnn_outputs)
 
         logits = tf.layers.dense(rnn_outputs, params['vocabulary_sizes'][2]+1) # +1 because of 'blank' CTC
 
@@ -702,10 +692,9 @@ def get_logger(FLAGS):
     now = datetime.now()
     timestamp = now.strftime('%Y%m%d%H%M%S')
 
-    params = 'data_{}_seed_{}_freeze_{}_height_{}_channels_{}_augmentation_{}_delimiter_{}_test_{}_batch_{}'.format(
+    params = 'data_{}_seed_{}_height_{}_channels_{}_augmentation_{}_delimiter_{}_test_{}_batch_{}'.format(
         os.path.splitext(os.path.basename(FLAGS.data_path))[0],
         FLAGS.seed,
-        FLAGS.freeze,
         FLAGS.image_height,
         FLAGS.channels,
         FLAGS.image_transformations,
@@ -811,7 +800,7 @@ if __name__ == '__main__':
     parser.add_argument('--model-symbol', dest='model_symbol', type=str, default=None, help='Load symbol model from file')
     parser.add_argument('--model-position', dest='model_position', type=str, default=None, help='Load position model from file')
     parser.add_argument('--skip-split-training', dest='skip_split_training', default=False, action='store_true', help='Requires symbol and position models')
-    parser.add_argument('--freeze', dest='freeze', type=int, default=0, help='Freeze point (0=No freeze, 1=Freeze convolution layer, 2=Freeze conv+rnn')
+    #parser.add_argument('--freeze', dest='freeze', type=int, default=0, help='Freeze point (0=No freeze, 1=Freeze convolution layer, 2=Freeze conv+rnn')
 
     FLAGS = parser.parse_args()
 
@@ -861,7 +850,7 @@ if __name__ == '__main__':
     # CRNN
     print("Creating model...")
        
-    model_placeholders = model(params, freeze=FLAGS.freeze)
+    model_placeholders = model(params,)
 
     optimizer_symbol = tf.train.AdamOptimizer().minimize(model_placeholders['symbol']['loss'])
     decoder_symbol, log_prob_symbol = tf.nn.ctc_greedy_decoder(model_placeholders['symbol']['logits'], model_placeholders['seq_len'])
