@@ -852,7 +852,7 @@ if __name__ == '__main__':
                         }
                     )
 
-                    metrics_symbol, H, Y = eval(pred_symbol, Y_joint, vocabularies[2], metrics)
+                    metrics, H, Y = eval(pred_symbol, Y_joint, vocabularies[2], metrics)
                     logger.log_predictions(epoch, H, Y)
 
                 except tf.errors.OutOfRangeError:
