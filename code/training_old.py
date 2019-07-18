@@ -406,14 +406,16 @@ if __name__ == "__main__":
                 if len(Y_train_batch[idx]) == 0:
                     Y_train_batch[idx] = [vocabulary_size]  # Blank CTC
 
-            _ = sess.run(optimizer, 
-                         {
-                             crnn_placeholders['input']: X_train_batch,
-                             crnn_placeholders['seq_len']: L_train_batch,
-                             crnn_placeholders['target']: sparse_tuple_from(Y_train_batch),
-                             crnn_placeholders['keep_prob']: 0.5
-                         }
-                        )
+            update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(update_ops): # Enables batch normalization
+                _ = sess.run(optimizer, 
+                            {
+                                crnn_placeholders['input']: X_train_batch,
+                                crnn_placeholders['seq_len']: L_train_batch,
+                                crnn_placeholders['target']: sparse_tuple_from(Y_train_batch),
+                                crnn_placeholders['keep_prob']: 0.5
+                            }
+                            )
 
 
         # Validation
