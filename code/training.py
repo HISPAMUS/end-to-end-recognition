@@ -110,6 +110,7 @@ class LstReader:
                                     self.joint.append(['{}:{}'.format(s['agnostic_symbol_type'], s["position_in_straff"]) for s in symbols])
 
                                 top, left, bottom, right = region['bounding_box']['fromY'], region['bounding_box']['fromX'], region['bounding_box']['toY'], region['bounding_box']['toX']
+                                top, left, bottom, right = StaffsModificator.aply_points_pad(page_path, top, left, bottom, right)
                                 region_id = region['id']
                                 self.regions.append([top, bottom, left, right, region_id])
                                 region_count += 1
@@ -170,6 +171,19 @@ class StaffsModificator:
 
         return image
 
+    @staticmethod
+    def aply_points_pad(page_path, top, left, bottom, right):
+        image = cv2.imread(page_path, True)
+
+        (rows, cols) = image.shape[:2]
+
+        top     = int(cols * 0.1 + top)
+        bottom  = int(cols * 0.1 + bottom)
+        right   = int(rows * 0.1 + right)
+        left    = int(rows * 0.1 + left)
+
+        return top, left, bottom, right
+
     def __rotate_point(self, M, center, point):
         point[0] -= center[0]
         point[1] -= center[1]
@@ -192,7 +206,7 @@ class StaffsModificator:
         left    = min(left_top[0], left_bottom[0])
         right   = max(right_top[0], right_bottom[0])
 
-        return round(top), round(bottom), round(left), round(right)
+        return int(top), int(bottom), int(left), int(right)
 
     def __apply_random_margins(self, margin, rows, cols, top, bottom, right, left):
         sc = (margin/100) * abs(top - bottom)
@@ -236,16 +250,11 @@ class StaffsModificator:
 
         return cv2.dilate(staff, kernel, iterations=1)
 
-    def apply(self, img, img_top, img_bottom, img_left, img_right):
-        cv2.imwrite('test.jpg', img)
+    def apply(self, img, top, bottom, left, right):
+        #cv2.imwrite('test.jpg', img)
 
         (rows, cols) = img.shape[:2]
         center = (round(cols/2), round(rows/2))
-
-        top     = round(cols / 12 + img_top)
-        bottom  = round(cols / 12 + img_bottom)
-        right   = round(rows / 12 + img_right)
-        left    = round(rows / 12 + img_left)
 
         angle = random.randint(-1 * self.__params['rotation_rank'], self.__params['rotation_rank']) if self.__params.get("rotation_rank") else 0
 
@@ -266,7 +275,7 @@ class StaffsModificator:
         if self.__params.get("erosion_dilation") == True:
             staff = self.__apply_erosion_dilation(staff)
 
-        cv2.imwrite('stafftest.jpg', staff)
+        #cv2.imwrite('stafftest.jpg', staff)
 
         return staff
 
@@ -285,7 +294,8 @@ class DataReader:
                  batch_size=16,
                  image_transformations=4,
                  conf_transformations_path=None,
-                 parallel=1):
+                 parallel=tf.data.experimental.AUTOTUNE):
+                 #parallel=1):
 
         self.__lst = LstReader(lst_path, sequence_delimiter)
         self.__augmenter = StaffsModificator(conf_transformations_path)
