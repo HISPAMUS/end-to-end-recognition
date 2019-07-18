@@ -793,7 +793,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', dest='batch_size', type=int, default=16, help='Batch size')
 
     # Training options
-    parser.add_argument('--epochs', dest='epochs', type=int, default=1000, help='Number of training epochs')
+    parser.add_argument('--split-epochs', dest='split_epochs', type=int, default=1000, help='Number of training epochs')
+    parser.add_argument('--joint-epochs', dest='joint_epochs', type=int, default=1000, help='Number of training epochs')
     parser.add_argument('--gpu', dest='gpu', type=str, default=None, help='GPU id')
     parser.add_argument('--seed', dest='seed', type=int, default=None, help='Random seed for shuffling data (default=None)')
     parser.add_argument('--model-symbol', dest='model_symbol', type=str, default=None, help='Load symbol model from file')
@@ -888,8 +889,8 @@ if __name__ == '__main__':
     # ===============================================
     # Split training
     if not FLAGS.skip_split_training:
-        for epoch in range(1, FLAGS.epochs+1):
-            print("Split epoch {}/{}".format(epoch, FLAGS.epochs))
+        for epoch in range(1, FLAGS.split_epochs+1):
+            print("Split epoch {}/{}".format(epoch, FLAGS.split_epochs))
 
             it_train = train_ds.make_one_shot_iterator()
             next_batch = it_train.get_next()
@@ -980,8 +981,8 @@ if __name__ == '__main__':
 
     # ===============================================
     # Joint training
-    for epoch in range(1, FLAGS.epochs+1):
-        print("Joint epoch {}/{}".format(epoch, FLAGS.epochs))
+    for epoch in range(1, FLAGS.joint_epochs+1):
+        print("Joint epoch {}/{}".format(epoch, FLAGS.joint_epochs))
 
         it_train = train_ds.make_one_shot_iterator()
         next_batch = it_train.get_next()
