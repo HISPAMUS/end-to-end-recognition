@@ -2,11 +2,13 @@ import argparse
 import cv2
 from datetime import datetime
 import json
+import logging
 from math import ceil
 import numpy as np
 import os
 import random
 from sklearn.utils import shuffle
+import sys
 import tensorflow as tf
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
@@ -267,6 +269,7 @@ class DataReader:
                  validation_split=0.1,
                  batch_size=16,
                  image_transformations=4,
+                 seed=None,
                  parallel=tf.data.experimental.AUTOTUNE):
 
         self.__lst = LstReader(lst_path, sequence_delimiter)
@@ -280,13 +283,14 @@ class DataReader:
         self.DATA_SIZE = len(self.__lst.regions)
         self.TEST_SPLIT = np.uint32(self.DATA_SIZE * test_split)
         self.VAL_SPLIT = np.uint32((self.DATA_SIZE - self.TEST_SPLIT) * validation_split)
-        self.TRAIN_SPLIT = np.uint32(self.DATA_SIZE - self.TEST_SPLIT - self.VAL_SPLIT)
+        self.TRAIN_SPLIT = np.uint32((self.DATA_SIZE - self.TEST_SPLIT - self.VAL_SPLIT) * image_transformations)
         
         images, regions, symbols, positions, joint = shuffle(self.__lst.images,
                                                             self.__lst.regions,
                                                             self.__lst.symbols,
                                                             self.__lst.positions,
-                                                            self.__lst.joint)
+                                                            self.__lst.joint,
+                                                            random_state=seed)
 
         val_idx = self.TEST_SPLIT
         train_idx = val_idx + self.VAL_SPLIT
@@ -430,6 +434,8 @@ def cnn_block(x, params):
             padding="same",
             activation=None)
 
+        x = tf.identity(x, name='conv_output_{}'.format(i))
+
         x = tf.layers.batch_normalization(x)
 
         x = leaky_relu(x)
@@ -441,7 +447,7 @@ def cnn_block(x, params):
 
         width_reduction = width_reduction * params['conv_pooling_size'][i][1]
         height_reduction = height_reduction * params['conv_pooling_size'][i][0]
-
+    
     return x, width_reduction, height_reduction
 
 
@@ -543,6 +549,7 @@ def model(params):
     with tf.variable_scope('joint'):
         rnn_outputs = (placeholders['symbol']['rnn_outputs'], placeholders['position']['rnn_outputs'])
         rnn_outputs = tf.concat(rnn_outputs, 2)
+        rnn_outputs = tf.stop_gradient(rnn_outputs)
 
         logits = tf.layers.dense(rnn_outputs, params['vocabulary_sizes'][2]+1) # +1 because of 'blank' CTC
 
@@ -652,6 +659,126 @@ def edit_distance(a,b,EOS=-1,PAD=-1):
 # ===================================================
 
 
+class Logger:
+    def __init__(self, folder):
+        self.folder = folder
+
+        self.metrics = logging.getLogger('metrics')
+        m_handler = logging.FileHandler(folder+'/metrics.log')
+        m_handler.setLevel(logging.INFO)
+        self.metrics.addHandler(m_handler)
+
+        self.predictions = logging.getLogger('predictions')
+        p_handler = logging.FileHandler(folder+'/predictions.log')
+        p_handler.setLevel(logging.INFO)
+        self.predictions.addHandler(p_handler)
+    
+    def log_metrics(self, epoch, metrics, metrics_name):
+        log = self.metrics
+        error_rate, samples = 100. * metrics[0] / metrics[1], metrics[2]
+        msg = 'Epoch {} - {}: {:.2f} - From {} samples'.format(epoch, metrics_name, error_rate, samples)
+        print(msg)
+        log.error(msg)
+    
+    def log_predictions(self, epoch, H, Y):
+        log = self.predictions
+        log.error('Epoch {}'.format(epoch))
+        for i in range(len(H)):
+            log.error('H: {}'.format(H[i]))
+            log.error('Y: {}'.format(Y[i]))
+
+
+def get_logger(FLAGS):
+    now = datetime.now()
+    timestamp = now.strftime('%Y%m%d%H%M%S')
+
+    params = 'data_{}_seed_{}_height_{}_channels_{}_augmentation_{}_delimiter_{}_test_{}_batch_{}'.format(
+        os.path.splitext(os.path.basename(FLAGS.data_path))[0],
+        FLAGS.seed,
+        FLAGS.image_height,
+        FLAGS.channels,
+        FLAGS.image_transformations,
+        FLAGS.sequence_delimiter,
+        FLAGS.test_split,
+        FLAGS.batch_size
+    )
+
+    folder = 'logs/{}_pid_{}_{}'.format(timestamp, os.getpid(), params)
+    os.makedirs(folder)
+
+    return Logger(folder)
+
+
+class ResultsManager:
+    def __init__(self, logger):
+        self.logger = logger
+        self.results = dict()
+        self.best = dict()
+    
+    def save(self, epoch, metrics, metric_name):
+        improved = True
+        logger.log_metrics(epoch, metrics, metric_name)
+        error_rate = float(metrics[0]) / float(metrics[1])
+        if metric_name in self.results:
+            self.results[metric_name].append((epoch, error_rate))
+        else:
+            self.results[metric_name] =  [(epoch, error_rate)]
+        if metric_name in self.best:
+            if error_rate > self.best[metric_name][1]:
+                self.best[metric_name] = (epoch, error_rate)
+            else:
+                improved = False
+        else:
+            self.best[metric_name] = (epoch, error_rate)
+        return improved
+
+
+# ===================================================
+
+
+def prepare_data(batch, vocabulary_sizes, params):
+    X, XL, Y_symbol, Y_position, Y_joint, YL, _, _ = batch
+    XL = [length // params['width_reduction'] for length in XL]
+    Y_symbol = [y[:YL[idx]] for idx, y in enumerate(Y_symbol)]
+    Y_position = [y[:YL[idx]] for idx, y in enumerate(Y_position)]
+    Y_joint = [y[:YL[idx]] for idx, y in enumerate(Y_joint)]
+
+    # Deal with empty staff sections
+    for idx, _ in enumerate(X):
+        if YL[idx] == 0:
+            Y_symbol[idx] = [vocabulary_sizes[0]]  # Blank CTC
+            Y_position[idx] = [vocabulary_sizes[1]]  # Blank CTC
+            Y_joint[idx] = [vocabulary_sizes[2]]  # Blank CTC
+            YL[idx] = 1
+    
+    return X, XL, Y_symbol, Y_position, Y_joint, YL
+
+
+# ===================================================
+
+
+def eval(predictions, labels, vocabulary, metrics):
+    predictions = sparse_tensor_to_strs(predictions)
+    H, Y = [], []
+    for i in range(len(predictions)):                    
+        h = [ vocabulary.idx2word[w] for w in predictions[i] ]
+        y = [ vocabulary.idx2word[w] for w in labels[i] ]
+        
+        metrics = (
+            metrics[0] + edit_distance(h, y), # number of edition operations
+            metrics[1] + len(y), # total length of the sequences
+            metrics[2] + 1 # number of sequences
+        )
+
+        H.append(h)
+        Y.append(y)
+
+    return metrics, H, Y
+
+
+# ===================================================
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='CRNN Training for HMR.')
@@ -668,10 +795,22 @@ if __name__ == '__main__':
     # Training options
     parser.add_argument('--epochs', dest='epochs', type=int, default=1000, help='Number of training epochs')
     parser.add_argument('--gpu', dest='gpu', type=str, default=None, help='GPU id')
-    parser.add_argument('--output-vocabulary', dest='vocabulary_path', required=True, help='Saves vocabulary file to the specified path')
     parser.add_argument('--save-model', dest='save_model', type=str, default=None, help='Path to saved model')
+    parser.add_argument('--seed', dest='seed', type=int, default=None, help='Random seed for shuffling data (default=None)')
+    parser.add_argument('--model-symbol', dest='model_symbol', type=str, default=None, help='Load symbol model from file')
+    parser.add_argument('--model-position', dest='model_position', type=str, default=None, help='Load position model from file')
+    parser.add_argument('--skip-split-training', dest='skip_split_training', default=False, action='store_true', help='Requires symbol and position models')
 
     FLAGS = parser.parse_args()
+
+    if FLAGS.skip_split_training and (FLAGS.model_symbol is None or FLAGS.model_position is None):
+        print('Symbol and position models are required in order to skip split training')
+        sys.exit()
+
+    # ===============================================
+    # Initialize logger & results manager
+    logger = get_logger(FLAGS)
+    results = ResultsManager(logger)
 
     # ===============================================
     # Initialize TensorFlow
@@ -681,20 +820,23 @@ if __name__ == '__main__':
     # Loading data
     print('Preparing data...')
     
-    data_reader = DataReader(FLAGS.data_path,
+    data_reader = DataReader(
+        FLAGS.data_path,
         image_height=FLAGS.image_height,
         channels=FLAGS.channels,
         sequence_delimiter=FLAGS.sequence_delimiter,
         test_split=FLAGS.test_split,
         batch_size=FLAGS.batch_size,
-        image_transformations=FLAGS.image_transformations)
+        image_transformations=FLAGS.image_transformations,
+        seed=FLAGS.seed
+    )
     
     train_ds, val_ds, test_ds = data_reader.get_data()
-    symbol_lang, position_lang, joint_lang = data_reader.get_dictionaries()
+    vocabularies = data_reader.get_dictionaries() # 0 -> symbol, 1 -> position, 2 -> joint
     vocabulary_sizes = (
-        len(symbol_lang.word2idx),
-        len(position_lang.word2idx),
-        len(joint_lang.word2idx)
+        len(vocabularies[0].word2idx),
+        len(vocabularies[1].word2idx),
+        len(vocabularies[2].word2idx)
     )
 
     print('Done')
@@ -726,109 +868,184 @@ if __name__ == '__main__':
     print('Validating with ' + str(data_reader.VAL_SPLIT) + ' samples.')
     print('Testing with ' + str(data_reader.TEST_SPLIT) + ' samples.')
 
-    saver = tf.train.Saver(max_to_keep=None)
+    symbol_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='symbol')
+    position_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='position')
+    saver_symbol = tf.train.Saver(var_list=symbol_variables, max_to_keep=1)
+    saver_position = tf.train.Saver(var_list=position_variables, max_to_keep=1)
+    saver_joint = tf.train.Saver(max_to_keep=1) # Saves the complete model
+
     sess.run(tf.global_variables_initializer())
 
+    # ===============================================
+    # Load models
+    if FLAGS.model_symbol is not None:
+        saver_symbol.restore(sess, FLAGS.model_symbol)
+        print('Loaded symbol model')
+
+    if FLAGS.model_position is not None:
+        saver_position.restore(sess, FLAGS.model_position)
+        print('Loaded position model')
+
+    # ===============================================
+    # Split training
+    if not FLAGS.skip_split_training:
+        for epoch in range(1, FLAGS.epochs+1):
+            print("Split epoch {}/{}".format(epoch, FLAGS.epochs))
+
+            it_train = train_ds.make_one_shot_iterator()
+            next_batch = it_train.get_next()
+            batch = 1
+            while True:
+                try:
+                    X, XL, Y_symbol, Y_position, Y_joint, YL = prepare_data(
+                        sess.run(next_batch),
+                        vocabulary_sizes,
+                        params
+                    )
+
+                    print('Batch {}: {} samples'.format(batch, len(X)))
+
+                    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                    with tf.control_dependencies(update_ops): # Enables batch normalization
+                        _, _ = sess.run(
+                            [optimizer_symbol, optimizer_position], 
+                            {
+                                model_placeholders['input']: X,
+                                model_placeholders['seq_len']: XL,
+                                model_placeholders['symbol']['target']: sparse_tuple_from(Y_symbol),
+                                model_placeholders['position']['target']: sparse_tuple_from(Y_position),
+                                model_placeholders['keep_prob']: 0.75
+                            }
+                        )
+
+                    batch = batch + 1
+                except tf.errors.OutOfRangeError:
+                    break
+            
+            # ===============================================
+            # Split validation   
+            if epoch % 5 == 0:
+                metrics_symbol = (0, 0, 0) # (editions, total_length, sequences)
+                metrics_position = (0, 0, 0)
+
+                it_val = val_ds.make_one_shot_iterator()
+                next_batch = it_val.get_next()
+                while True:
+                    try:
+                        X, XL, Y_symbol, Y_position, Y_joint, YL = prepare_data(
+                            sess.run(next_batch),
+                            vocabulary_sizes,
+                            params
+                        )
+
+                        pred_symbol, pred_position = sess.run(
+                            [decoder_symbol, decoder_position],
+                            {
+                                model_placeholders['input']: X,
+                                model_placeholders['seq_len']: XL,
+                                model_placeholders['keep_prob']: 1.0,
+                            }
+                        )
+
+                        metrics_symbol, H, Y = eval(pred_symbol, Y_symbol, vocabularies[0], metrics_symbol)
+                        logger.log_predictions(epoch, H, Y)
+
+                        metrics_position, H, Y = eval(pred_position, Y_position, vocabularies[1], metrics_position)
+                        logger.log_predictions(epoch, H, Y)
+
+                    except tf.errors.OutOfRangeError:
+                        break
+
+            save_symbol = results.save(epoch, metrics_symbol, 'split GER')
+            save_position = results.save(epoch, metrics_position, 'split HER')
+
+            if save_symbol:
+                model_path = '{}/model_symbol'.format(logger.folder)
+                print('Saving symbol model to {}'.format(model_path))
+                saver_symbol.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_symbol')
+
+            if save_position:
+                model_path = '{}/model_position'.format(logger.folder)
+                print('Saving position model to {}'.format(model_path))
+                saver_position.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_position')
+
+        # ===============================================
+        # Load best split models
+        model_path = tf.train.latest_checkpoint(logger.folder, 'checkpoint_symbol')
+        saver_symbol.restore(sess, model_path)
+        print('Restored best symbol model')
+
+        model_path = tf.train.latest_checkpoint(logger.folder, 'checkpoint_position')
+        saver_position.restore(sess, model_path)
+        print('Restored best position model')
+
+    # ===============================================
+    # Joint training
     for epoch in range(1, FLAGS.epochs+1):
-        print("Epoch {}/{}".format(epoch, FLAGS.epochs))
+        print("Joint epoch {}/{}".format(epoch, FLAGS.epochs))
 
         it_train = train_ds.make_one_shot_iterator()
         next_batch = it_train.get_next()
         batch = 1
         while True:
             try:
-                X_train_batch, XL_train_batch, Y_symbol_train_batch, Y_position_train_batch, Y_joint_train_batch, YL_train_batch, _, _ = sess.run(next_batch)
-                XL_train_batch = [length // params['width_reduction'] for length in XL_train_batch]
-                Y_symbol_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_symbol_train_batch)]
-                Y_position_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_position_train_batch)]
-                Y_joint_train_batch = [y[:YL_train_batch[idx]] for idx, y in enumerate(Y_joint_train_batch)]
+                X, XL, Y_symbol, Y_position, Y_joint, YL = prepare_data(
+                    sess.run(next_batch),
+                    vocabulary_sizes,
+                    params
+                )
 
-                print('Batch {}: {} samples'.format(batch, len(X_train_batch)))
-
-                # Deal with empty staff sections
-                for idx, _ in enumerate(X_train_batch):
-                    if YL_train_batch[idx] == 0:
-                        Y_symbol_train_batch[idx] = [vocabulary_sizes[0]]  # Blank CTC
-                        Y_position_train_batch[idx] = [vocabulary_sizes[1]]  # Blank CTC
-                        Y_joint_train_batch[idx] = [vocabulary_sizes[2]]  # Blank CTC
-                        YL_train_batch[idx] = 1
+                print('Batch {}: {} samples'.format(batch, len(X)))
 
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-                with tf.control_dependencies(update_ops):
-                    _, _ = sess.run([optimizer_symbol, optimizer_position], 
-                                {
-                                    model_placeholders['input']: X_train_batch,
-                                    model_placeholders['seq_len']: XL_train_batch,
-                                    model_placeholders['symbol']['target']: sparse_tuple_from(Y_symbol_train_batch),
-                                    model_placeholders['position']['target']: sparse_tuple_from(Y_position_train_batch),
-                                    model_placeholders['keep_prob']: 0.75
-                                }
-                                )
+                with tf.control_dependencies(update_ops): # Enables batch normalization
+                    _ = sess.run(
+                        optimizer_joint,
+                        {
+                            model_placeholders['input']: X,
+                            model_placeholders['seq_len']: XL,
+                            model_placeholders['joint']['target']: sparse_tuple_from(Y_joint),
+                            model_placeholders['keep_prob']: 0.75
+                        }
+                    )
 
                 batch = batch + 1
             except tf.errors.OutOfRangeError:
                 break
         
-        # Validation
+        # ===============================================
+        # Split validation   
         if epoch % 5 == 0:
-            acc_symbol_ed = 0
-            acc_symbol_count = 0
-            acc_symbol_len = 0
-
-            acc_position_ed = 0
-            acc_position_count = 0
-            acc_position_len = 0
+            metrics_joint = (0, 0, 0) # (editions, total_length, sequences)
 
             it_val = val_ds.make_one_shot_iterator()
             next_batch = it_val.get_next()
             while True:
                 try:
-                    X_val_batch, XL_val_batch, Y_symbol_val_batch, Y_position_val_batch, Y_joint_val_batch, YL_val_batch, _, _ = sess.run(next_batch)
-                    XL_val_batch = [length // params['width_reduction'] for length in XL_val_batch]
-                    Y_symbol_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_symbol_val_batch)]
-                    Y_position_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_position_val_batch)]
-                    Y_joint_val_batch = [y[:YL_val_batch[idx]] for idx, y in enumerate(Y_joint_val_batch)]
+                    X, XL, Y_symbol, Y_position, Y_joint, YL = prepare_data(
+                        sess.run(next_batch),
+                        vocabulary_sizes,
+                        params
+                    )
 
-                    pred_symbol, pred_position = sess.run([decoder_symbol, decoder_position],
+                    pred_joint = sess.run(
+                        decoder_joint,
                         {
-                            model_placeholders['input']: X_val_batch,
-                            model_placeholders['seq_len']: XL_val_batch,
+                            model_placeholders['input']: X,
+                            model_placeholders['seq_len']: XL,
                             model_placeholders['keep_prob']: 1.0,
                         }
                     )
 
-                    sequence_symbol = sparse_tensor_to_strs(pred_symbol)
-                    for i in range(len(sequence_symbol)):                    
-                        h = [ symbol_lang.idx2word[w] for w in sequence_symbol[i] ]
-                        y = [ symbol_lang.idx2word[w] for w in Y_symbol_val_batch[i] ]
-
-                        print("Y:{}".format(y)) # ************
-                        print("H:{}".format(h)) # ************
-                        
-                        acc_symbol_ed += edit_distance(h, y)
-                        acc_symbol_len += len(y)
-                        acc_symbol_count += 1
-
-                    sequence_position = sparse_tensor_to_strs(pred_position)
-                    for i in range(len(sequence_symbol)):                    
-                        h = [ position_lang.idx2word[w] for w in sequence_position[i] ]
-                        y = [ position_lang.idx2word[w] for w in Y_position_val_batch[i] ]
-
-                        print("Y:{}".format(y)) # ************
-                        print("H:{}".format(h)) # ************
-                        
-                        acc_position_ed += edit_distance(h, y)
-                        acc_position_len += len(y)
-                        acc_position_count += 1
+                    metrics_joint, H, Y = eval(pred_joint, Y_joint, vocabularies[2], metrics_joint)
+                    logger.log_predictions(epoch, H, Y)
 
                 except tf.errors.OutOfRangeError:
                     break
 
-            print('Epoch {} - symbol SER: {} - From {} samples'.format(epoch, str(100. * acc_symbol_ed / acc_symbol_len), acc_symbol_count))
-            print('Epoch {} - position SER: {} - From {} samples'.format(epoch, str(100. * acc_position_ed / acc_position_len), acc_position_count))
-            
-            if epoch % 5 == 0:
-                if FLAGS.save_model is not None:
-                    save_model_epoch = FLAGS.save_model+'_'+str(epoch)
-                    print('-> Saving current model to {}'.format(save_model_epoch))
-                    saver.save(sess, save_model_epoch)
+        save_joint = results.save(epoch, metrics_joint, 'joint SER')
+
+        if save_joint:
+            model_path = '{}/model_joint'.format(logger.folder)
+            print('Saving joint model to {}'.format(model_path))
+            saver_joint.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_joint')
