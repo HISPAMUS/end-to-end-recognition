@@ -724,7 +724,7 @@ class ResultsManager:
         else:
             self.results[metric_name] =  [(epoch, error_rate)]
         if metric_name in self.best:
-            if error_rate > self.best[metric_name][1]:
+            if error_rate < self.best[metric_name][1]:
                 self.best[metric_name] = (epoch, error_rate)
             else:
                 improved = False
