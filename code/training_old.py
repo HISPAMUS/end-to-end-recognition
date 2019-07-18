@@ -135,7 +135,9 @@ def load_set(data_filepath):
                     if "regions" in page:
                         for region in page['regions']:
                             if region['type'] == 'staff' and "symbols" in region:                            
-                                symbol_sequence = [s["agnostic_symbol_type"] + ":" + s["position_in_straff"] for s in region["symbols"] ]
+                                symbols = region['symbols']
+                                symbols.sort(key=lambda symbol: symbol['bounding_box']['fromX'])
+                                symbol_sequence = [s["agnostic_symbol_type"] + ":" + s["position_in_straff"] for s in symbols ]
                                 # TODO: mover dentro del if
                                 y.append(symbol_sequence)
                                 vocabulary.update(symbol_sequence)                            
