@@ -795,7 +795,6 @@ if __name__ == '__main__':
     # Training options
     parser.add_argument('--epochs', dest='epochs', type=int, default=1000, help='Number of training epochs')
     parser.add_argument('--gpu', dest='gpu', type=str, default=None, help='GPU id')
-    parser.add_argument('--save-model', dest='save_model', type=str, default=None, help='Path to saved model')
     parser.add_argument('--seed', dest='seed', type=int, default=None, help='Random seed for shuffling data (default=None)')
     parser.add_argument('--model-symbol', dest='model_symbol', type=str, default=None, help='Load symbol model from file')
     parser.add_argument('--model-position', dest='model_position', type=str, default=None, help='Load position model from file')
@@ -956,18 +955,18 @@ if __name__ == '__main__':
                     except tf.errors.OutOfRangeError:
                         break
 
-            save_symbol = results.save(epoch, metrics_symbol, 'split GER')
-            save_position = results.save(epoch, metrics_position, 'split HER')
+                save_symbol = results.save(epoch, metrics_symbol, 'split GER')
+                save_position = results.save(epoch, metrics_position, 'split HER')
 
-            if save_symbol:
-                model_path = '{}/model_symbol'.format(logger.folder)
-                print('Saving symbol model to {}'.format(model_path))
-                saver_symbol.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_symbol')
+                if save_symbol:
+                    model_path = '{}/model_symbol'.format(logger.folder)
+                    print('Saving symbol model to {}'.format(model_path))
+                    saver_symbol.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_symbol')
 
-            if save_position:
-                model_path = '{}/model_position'.format(logger.folder)
-                print('Saving position model to {}'.format(model_path))
-                saver_position.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_position')
+                if save_position:
+                    model_path = '{}/model_position'.format(logger.folder)
+                    print('Saving position model to {}'.format(model_path))
+                    saver_position.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_position')
 
         # ===============================================
         # Load best split models
@@ -1043,9 +1042,9 @@ if __name__ == '__main__':
                 except tf.errors.OutOfRangeError:
                     break
 
-        save_joint = results.save(epoch, metrics_joint, 'joint SER')
+            save_joint = results.save(epoch, metrics_joint, 'joint SER')
 
-        if save_joint:
-            model_path = '{}/model_joint'.format(logger.folder)
-            print('Saving joint model to {}'.format(model_path))
-            saver_joint.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_joint')
+            if save_joint:
+                model_path = '{}/model_joint'.format(logger.folder)
+                print('Saving joint model to {}'.format(model_path))
+                saver_joint.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_joint')
