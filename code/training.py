@@ -695,9 +695,10 @@ def get_logger(FLAGS):
     now = datetime.now()
     timestamp = now.strftime('%Y%m%d%H%M%S')
 
-    params = 'data_{}_seed_{}_height_{}_channels_{}_augmentation_{}_delimiter_{}_test_{}_batch_{}'.format(
+    params = 'data_{}_seed_{}_freeze_{}_height_{}_channels_{}_augmentation_{}_delimiter_{}_test_{}_batch_{}'.format(
         os.path.splitext(os.path.basename(FLAGS.data_path))[0],
         FLAGS.seed,
+        FLAGS.freeze,
         FLAGS.image_height,
         FLAGS.channels,
         FLAGS.image_transformations,
