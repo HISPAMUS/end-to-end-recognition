@@ -513,43 +513,46 @@ def model(params):
     input_shape = tf.shape(input)
 
     with tf.variable_scope('symbol'):
-        # Convolutional blocks
-        x, width_reduction, height_reduction = cnn_block(input, params)
+        with tf.variable_scope('cnn'):
+            # Convolutional blocks
+            x, width_reduction, height_reduction = cnn_block(input, params)
 
-        # Prepare output of conv block for recurrent blocks
-        features = tf.transpose(x, perm=[2, 0, 3, 1])  # -> [width, batch, height, channels] (time_major=True)
-        feature_dim = params['conv_filter_n'][-1] * (params['img_height'] / height_reduction)
-        feature_width = input_shape[2] // width_reduction
-        features = tf.reshape(features, tf.stack([tf.cast(feature_width, 'int32'), input_shape[0],
-                                                tf.cast(feature_dim, 'int32')]))  # -> [width, batch, features]
+            # Prepare output of conv block for recurrent blocks
+            features = tf.transpose(x, perm=[2, 0, 3, 1])  # -> [width, batch, height, channels] (time_major=True)
+            feature_dim = params['conv_filter_n'][-1] * (params['img_height'] / height_reduction)
+            feature_width = input_shape[2] // width_reduction
+            features = tf.reshape(features, tf.stack([tf.cast(feature_width, 'int32'), input_shape[0],
+                                                    tf.cast(feature_dim, 'int32')]))  # -> [width, batch, features]
 
-        # Used for prediction
-        #tf.constant(params['img_height'], name='input_height')
-        #tf.constant(width_reduction, name='width_reduction')
+            # Used for prediction
+            #tf.constant(params['img_height'], name='input_height')
+            #tf.constant(width_reduction, name='width_reduction')
 
-        placeholders['symbol'] = rnn_block(features, placeholders, params, 0)
+        with tf.variable_scope('rnn'):
+            placeholders['symbol'] = rnn_block(features, placeholders, params, 0)
 
     with tf.variable_scope('position'):
-        # Convolutional blocks
-        x, width_reduction, height_reduction = cnn_block(input, params)
+        with tf.variable_scope('cnn'):
+            # Convolutional blocks
+            x, width_reduction, height_reduction = cnn_block(input, params)
 
-        # Prepare output of conv block for recurrent blocks
-        features = tf.transpose(x, perm=[2, 0, 3, 1])  # -> [width, batch, height, channels] (time_major=True)
-        feature_dim = params['conv_filter_n'][-1] * (params['img_height'] / height_reduction)
-        feature_width = input_shape[2] // width_reduction
-        features = tf.reshape(features, tf.stack([tf.cast(feature_width, 'int32'), input_shape[0],
-                                                tf.cast(feature_dim, 'int32')]))  # -> [width, batch, features]
+            # Prepare output of conv block for recurrent blocks
+            features = tf.transpose(x, perm=[2, 0, 3, 1])  # -> [width, batch, height, channels] (time_major=True)
+            feature_dim = params['conv_filter_n'][-1] * (params['img_height'] / height_reduction)
+            feature_width = input_shape[2] // width_reduction
+            features = tf.reshape(features, tf.stack([tf.cast(feature_width, 'int32'), input_shape[0],
+                                                    tf.cast(feature_dim, 'int32')]))  # -> [width, batch, features]
 
-        # Used for prediction
-        #tf.constant(params['img_height'], name='input_height')
-        #tf.constant(width_reduction, name='width_reduction')
+            # Used for prediction
+            #tf.constant(params['img_height'], name='input_height')
+            #tf.constant(width_reduction, name='width_reduction')
 
-        placeholders['position'] = rnn_block(features, placeholders, params, 1)
+        with tf.variable_scope('rnn'):
+            placeholders['position'] = rnn_block(features, placeholders, params, 1)
     
     with tf.variable_scope('joint'):
         rnn_outputs = (placeholders['symbol']['rnn_outputs'], placeholders['position']['rnn_outputs'])
         rnn_outputs = tf.concat(rnn_outputs, 2)
-        rnn_outputs = tf.stop_gradient(rnn_outputs)
 
         logits = tf.layers.dense(rnn_outputs, params['vocabulary_sizes'][2]+1) # +1 because of 'blank' CTC
 
@@ -800,7 +803,7 @@ if __name__ == '__main__':
     parser.add_argument('--model-symbol', dest='model_symbol', type=str, default=None, help='Load symbol model from file')
     parser.add_argument('--model-position', dest='model_position', type=str, default=None, help='Load position model from file')
     parser.add_argument('--skip-split-training', dest='skip_split_training', default=False, action='store_true', help='Requires symbol and position models')
-    #parser.add_argument('--freeze', dest='freeze', type=int, default=0, help='Freeze point (0=No freeze, 1=Freeze convolution layer, 2=Freeze conv+rnn')
+    parser.add_argument('--freeze', dest='freeze', type=int, default=0, help='Freeze point (0=No freeze, 1=Freeze convolution layer, 2=Freeze conv+rnn')
 
     FLAGS = parser.parse_args()
 
@@ -850,7 +853,7 @@ if __name__ == '__main__':
     # CRNN
     print("Creating model...")
        
-    model_placeholders = model(params,)
+    model_placeholders = model(params)
 
     optimizer_symbol = tf.train.AdamOptimizer().minimize(model_placeholders['symbol']['loss'])
     decoder_symbol, log_prob_symbol = tf.nn.ctc_greedy_decoder(model_placeholders['symbol']['logits'], model_placeholders['seq_len'])
@@ -858,7 +861,16 @@ if __name__ == '__main__':
     optimizer_position = tf.train.AdamOptimizer().minimize(model_placeholders['position']['loss'])
     decoder_position, log_prob_position = tf.nn.ctc_greedy_decoder(model_placeholders['position']['logits'], model_placeholders['seq_len'])
 
-    optimizer_joint = tf.train.AdamOptimizer().minimize(model_placeholders['joint']['loss'])
+    if FLAGS.freeze == 1:
+        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='symbol/rnn') + \
+            tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='position/rnn') + \
+            tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='joint')
+    elif FLAGS.freeze == 2:
+        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='joint')
+    else:
+        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+
+    optimizer_joint = tf.train.AdamOptimizer().minimize(model_placeholders['joint']['loss'], var_list=var_list)
     decoder_joint, log_prob_joint = tf.nn.ctc_greedy_decoder(model_placeholders['joint']['logits'], model_placeholders['seq_len'])
 
     print("Done")
