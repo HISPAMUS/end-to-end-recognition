@@ -176,7 +176,8 @@ if __name__ == '__main__':
     optimizer_symbol = tf.train.AdamOptimizer().minimize(model_placeholders['symbol']['loss'])
     decoder_symbol, log_prob_symbol = tf.nn.ctc_greedy_decoder(model_placeholders['symbol']['logits'], model_placeholders['seq_len'])
 
-    optimizer_position = tf.train.AdamOptimizer().minimize(model_placeholders['position']['loss'])
+    var_list_position = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='position')
+    optimizer_position = tf.train.AdamOptimizer().minimize(model_placeholders['position']['loss'], var_list=var_list_position)
     decoder_position, log_prob_position = tf.nn.ctc_greedy_decoder(model_placeholders['position']['logits'], model_placeholders['seq_len'])
 
     if FLAGS.freeze == 1:
