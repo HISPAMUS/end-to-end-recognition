@@ -162,14 +162,7 @@ if __name__ == '__main__':
     optimizer_position = tf.train.AdamOptimizer().minimize(model_placeholders['position']['loss'])
     decoder_position, log_prob_position = tf.nn.ctc_greedy_decoder(model_placeholders['position']['logits'], model_placeholders['seq_len'])
 
-    if FLAGS.freeze == 1:
-        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='symbol/rnn') + \
-            tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='position/rnn') + \
-            tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='joint')
-    elif FLAGS.freeze == 2:
-        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='joint')
-    else:
-        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+    var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='joint')
 
     optimizer_joint = tf.train.AdamOptimizer().minimize(model_placeholders['joint']['loss'], var_list=var_list)
     decoder_joint, log_prob_joint = tf.nn.ctc_greedy_decoder(model_placeholders['joint']['logits'], model_placeholders['seq_len'])
