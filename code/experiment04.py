@@ -231,7 +231,7 @@ if __name__ == '__main__':
             
             # ===============================================
             # Split validation   
-            if epoch % 1 == 0:
+            if epoch % 5 == 0:
                 metrics_symbol = (0, 0, 0) # (editions, total_length, sequences)
                 metrics_position = (0, 0, 0)
 
