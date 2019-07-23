@@ -1,0 +1,7 @@
+{
+    "rotation_rank" : 3,
+    "random_margin" : 10,
+    "erosion_dilation" : true,
+    "contrast" : true,
+    "fish_eye" : false
+}
