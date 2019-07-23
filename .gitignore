@@ -1,6 +1,5 @@
 *~
 Model/
-data/
 tmp/
 *.txt
 __pycache__
