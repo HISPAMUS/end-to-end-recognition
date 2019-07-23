@@ -3,5 +3,4 @@ Model/
 tmp/
 *.txt
 __pycache__
-resultados/
 data_loading*

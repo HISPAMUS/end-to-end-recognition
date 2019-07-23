@@ -1,0 +1,8 @@
+resultados/B-59.850_SA.txt|-.*|#FFF01F|B-59.850 Sin aumentado
+resultados/B-59.850_A_3I_Ero.txt|-3|#009CC3|B-59.850 Con aumentado (iter = 3)
+resultados/B-59.850_A_3I_Contr_Ero.txt|-3|#09FF00|B-59.850 Con aumentado (iter = 3 && Contr) (MAL)
+resultados/B-59.850_A_4I_Ero.txt|-*|#43E7FF|B-59.850 Con aumentado (iter = 4)
+resultados/B-59.850_A_4I_Contr_Ero.txt|-3|#09FF00|B-59.850 Con aumentado (iter = 4 && Contr)
+resultados/B-59.850_A_5I_Ero.txt|-3|#009CC3|B-59.850 Con aumentado (iter = 5)
+resultados/B-59.850_A_5I_Contr_Ero.txt|-3|#09FF00|B-59.850 Con aumentado (iter = 5 && Contr)
+resultados/HispamusJclg_SinAug.txt|--1|#FF6FDE|Hisp (jclg) sin aumentado
