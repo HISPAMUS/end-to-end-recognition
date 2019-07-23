@@ -114,6 +114,9 @@ class StaffsModificator:
         return cv2.dilate(staff, kernel, iterations=1)
 
     def __apply_fish_eye(self, staff):
+        if(random.randint(0, 1) == 0):
+            return staff
+
         (staff_rows, staff_cols) = staff.shape[:2]
 
         average = staff.mean(axis=0).mean(axis=0)
@@ -234,15 +237,15 @@ class StaffsModificator:
 
         return x
     
-    def testMethods(self, image, top, bottom, left, right, testIterations):
-        (rows, cols) = image.shape[:2]
+    def testMethods(self, img, top, bottom, left, right, testIterations):
+        (rows, cols) = img.shape[:2]
 
         print("Calculando pad de la imagen")
         #----------------------------------------------------------------------------------------------------------
-        start_time = time()
-        for _ in range(testIterations):
-            img = np.pad(image, ((int(cols * self.__params['pad']),), (int(rows * self.__params['pad']),), (0,)), 'mean')
-        print(str(time() - start_time) + " segundos")
+        #start_time = time()
+        #for _ in range(testIterations):
+        #    img = np.pad(image, ((int(cols * self.__params['pad']),), (int(rows * self.__params['pad']),), (0,)), 'mean')
+        #print(str(time() - start_time) + " segundos")
         #----------------------------------------------------------------------------------------------------------
 
         (new_rows, new_cols) = img.shape[:2]
@@ -262,10 +265,10 @@ class StaffsModificator:
 
         print("Calculando rotacion de la imagen entera")
         #----------------------------------------------------------------------------------------------------------
-        start_time = time()
-        for _ in range(testIterations):
-            image = cv2.warpAffine(img, M, (new_cols, new_rows))
-        print(str(time() - start_time) + " segundos")
+        #start_time = time()
+        #for _ in range(testIterations):
+        img = cv2.warpAffine(img, M, (new_cols, new_rows))
+        #print(str(time() - start_time) + " segundos")
         #----------------------------------------------------------------------------------------------------------
 
         M = cv2.getRotationMatrix2D(center, angle * -1, 1.0)
@@ -274,7 +277,7 @@ class StaffsModificator:
         if self.__params.get("random_margin"):
             top, bottom, right, left = self.__apply_random_margins(self.__params['random_margin'], new_rows, new_cols, top, bottom, right, left)
 
-        staff = image[top:bottom, left:right]
+        staff = img[top:bottom, left:right]
 
         if self.__params.get("contrast") == True:
             #print("Calculando contraste del pentagrama")
@@ -294,15 +297,20 @@ class StaffsModificator:
             #print(str(time() - start_time) + " segundos")
             #----------------------------------------------------------------------------------------------------------
 
-        if self.__params.get("fish_eye") == True:
+        #if self.__params.get("fish_eye") == True:
             #print("Calculando ojo de pez del pentagrama")
             #----------------------------------------------------------------------------------------------------------
             #start_time = time()
             #for _ in range(testIterations):
-            staff = self.__apply_fish_eye(staff)
+            #staff = self.__apply_fish_eye(staff)
             #print(str(time() - start_time) + " segundos")
             #----------------------------------------------------------------------------------------------------------
         
+        cv2.imwrite('stafftest.jpg', staff)
+        cv2.imwrite('test.jpg', img)
+        plt.imshow(img)
+        plt.show()
+
         return staff
 
     def testNewRotation(self, image, top, bottom, left, right, testIterations):
@@ -502,7 +510,7 @@ class StaffsModificator:
 
 if __name__ == "__main__":
     x = []
-    sm = StaffsModificator(rotation = 3, margin = 0, erosion_dilation = False, contrast = False)
+    sm = StaffsModificator(rotation = 3, margin = 10, erosion_dilation = True, contrast = True, fish_eye = True)
 
     lines = open("../data/hispamus.lst", 'r').read().splitlines()
 
@@ -521,13 +529,14 @@ if __name__ == "__main__":
                             if region['type'] == 'staff' and "symbols" in region:
                                 staff_top, staff_left, staff_bottom, staff_right = region["bounding_box"]["fromY"], region["bounding_box"]["fromX"], region["bounding_box"]["toY"], region["bounding_box"]["toX"]
 
-                                iteraciones = 20
-                                x.append(sm.testMethods(img, staff_top, staff_bottom, staff_left, staff_right, iteraciones))
+                                iteraciones = 1
+                                #x.append(sm.testMethods(img, staff_top, staff_bottom, staff_left, staff_right, iteraciones))
                                 #x.append(sm.testNewRotation(img, staff_top, staff_bottom, staff_left, staff_right, iteraciones))
-                                break
-                        break
-            break
+                                x.append(sm.get_one_staff_modification(img, staff_top, staff_bottom, staff_left, staff_right))
+                                x.append(sm.get_one_staff_modification(img, staff_top, staff_bottom, staff_left, staff_right))
+                                x.append(sm.get_one_staff_modification(img, staff_top, staff_bottom, staff_left, staff_right))
+                                x.append(sm.get_one_staff_modification(img, staff_top, staff_bottom, staff_left, staff_right))
 
-    for img in x:
-        plt.imshow(img)
-        plt.show()
+
+    for idx, img in enumerate(x):
+        cv2.imwrite('images/' + str(idx) + '.jpg', img)

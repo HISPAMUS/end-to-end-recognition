@@ -314,7 +314,8 @@ class DataReader:
                                                             self.__lst.regions,
                                                             self.__lst.symbols,
                                                             self.__lst.positions,
-                                                            self.__lst.joint)
+                                                            self.__lst.joint,
+                                                            random_state = 7654) #Seed to test
 
         val_idx = self.TEST_SPLIT
         train_idx = val_idx + self.VAL_SPLIT
