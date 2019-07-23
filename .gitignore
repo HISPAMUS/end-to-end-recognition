@@ -1,6 +1,5 @@
 *~
 Model/
 tmp/
-*.txt
 __pycache__
 data_loading*
