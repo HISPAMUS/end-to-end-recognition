@@ -22,7 +22,7 @@ if __name__ == "__main__":
         legends.append(data[3])
     
     plt.grid()
-    plt.ylim(10, 30)
+    plt.ylim(0, 100)
     plt.xlabel('Epoch')
     plt.ylabel('SER')
     plt.legend(legends)
