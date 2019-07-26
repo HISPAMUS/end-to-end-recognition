@@ -1,5 +1,6 @@
 import cv2
 import json
+from math import ceil
 import numpy as np
 import random
 from sklearn.utils import shuffle
@@ -277,6 +278,7 @@ class DataReader:
                  batch_size=16,
                  image_transformations=4,
                  seed=None,
+                 train_limit=None,
                  parallel=tf.data.experimental.AUTOTUNE):
 
         self.__lst = LstReader(lst_path, sequence_delimiter)
@@ -290,10 +292,10 @@ class DataReader:
         self.__BATCH_SIZE = batch_size
         self.DATA_SIZE = len(self.__lst.regions)
         self.TEST_SPLIT = np.uint32(self.DATA_SIZE * test_split)
-        self.VAL_SPLIT = np.uint32(
-            (self.DATA_SIZE - self.TEST_SPLIT) * validation_split)
-        self.TRAIN_SPLIT = np.uint32(
-            (self.DATA_SIZE - self.TEST_SPLIT - self.VAL_SPLIT) * image_transformations)
+        self.VAL_SPLIT = np.uint32(self.DATA_SIZE * test_split)
+        self.TRAIN_SPLIT = np.uint32((self.DATA_SIZE - self.TEST_SPLIT - self.VAL_SPLIT) * image_transformations)
+        if train_limit is not None:
+            self.TRAIN_SPLIT = np.uint32(train_limit * image_transformations)
 
         images, regions, symbols, positions, joint = shuffle(self.__lst.images,
                                                              self.__lst.regions,
@@ -302,40 +304,43 @@ class DataReader:
                                                              self.__lst.joint,
                                                              random_state=seed)
 
-        val_idx = self.TEST_SPLIT
-        train_idx = val_idx + self.VAL_SPLIT
+        test_idx = self.TEST_SPLIT
+        val_idx = test_idx + self.VAL_SPLIT
+        train_idx = self.DATA_SIZE
+        if train_limit is not None:
+            train_idx = val_idx + train_limit
 
         self.__image_test_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in images[:val_idx]], tf.string)
+            lambda: [(yield _) for _ in images[:test_idx]], tf.string)
         # Workaround for creating a dataset with sequences of different length
         self.__region_test_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in regions[:val_idx]], tf.int32)
+            lambda: [(yield _) for _ in regions[:test_idx]], tf.int32)
         self.__symbol_test_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in symbols[:val_idx]], tf.int32)
+            lambda: [(yield _) for _ in symbols[:test_idx]], tf.int32)
         self.__position_test_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in positions[:val_idx]], tf.int32)
+            lambda: [(yield _) for _ in positions[:test_idx]], tf.int32)
         self.__joint_test_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in joint[:val_idx]], tf.int32)
+            lambda: [(yield _) for _ in joint[:test_idx]], tf.int32)
 
         self.__image_val_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in images[val_idx:train_idx]], tf.string)
+            lambda: [(yield _) for _ in images[test_idx:val_idx]], tf.string)
         # Workaround for creating a dataset with sequences of different length
         self.__region_val_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in regions[val_idx:train_idx]], tf.int32)
+            lambda: [(yield _) for _ in regions[test_idx:val_idx]], tf.int32)
         self.__symbol_val_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in symbols[val_idx:train_idx]], tf.int32)
+            lambda: [(yield _) for _ in symbols[test_idx:val_idx]], tf.int32)
         self.__position_val_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in positions[val_idx:train_idx]], tf.int32)
+            lambda: [(yield _) for _ in positions[test_idx:val_idx]], tf.int32)
         self.__joint_val_ds = tf.data.Dataset.from_generator(
-            lambda: [(yield _) for _ in joint[val_idx:train_idx]], tf.int32)
+            lambda: [(yield _) for _ in joint[test_idx:val_idx]], tf.int32)
 
         images_train, regions_train, symbols_train, positions_train, joint_train = [], [], [], [], []
         for _ in range(self.__TRANSFORMATIONS):
-            images_train = images_train + images[train_idx:]
-            regions_train = regions_train + regions[train_idx:]
-            symbols_train = symbols_train + symbols[train_idx:]
-            positions_train = positions_train + positions[train_idx:]
-            joint_train = joint_train + joint[train_idx:]
+            images_train = images_train + images[val_idx:train_idx]
+            regions_train = regions_train + regions[val_idx:train_idx]
+            symbols_train = symbols_train + symbols[val_idx:train_idx]
+            positions_train = positions_train + positions[val_idx:train_idx]
+            joint_train = joint_train + joint[val_idx:train_idx]
 
         self.__image_train_ds = tf.data.Dataset.from_generator(
             lambda: [(yield _) for _ in images_train], tf.string)

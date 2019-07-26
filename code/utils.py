@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 from model import sparse_tensor_to_strs
+import numpy as np
 import os
 import tensorflow as tf
 
@@ -44,6 +45,11 @@ class Logger:
         p_handler = logging.FileHandler(folder+'/predictions.log')
         p_handler.setLevel(logging.INFO)
         self.predictions.addHandler(p_handler)
+
+        self.output = logging.getLogger('output')
+        o_handler = logging.FileHandler(folder+'/output.log')
+        o_handler.setLevel(logging.INFO)
+        self.output.addHandler(o_handler)
     
     def log_metrics(self, epoch, metrics, metrics_name):
         log = self.metrics
@@ -58,25 +64,32 @@ class Logger:
         for i in range(len(H)):
             log.error('H: {}'.format(H[i]))
             log.error('Y: {}'.format(Y[i]))
+    
+    def log(self, msg):
+        log = self.output
+        log.error(msg)
 
 
 def get_logger(prefix, FLAGS):
     now = datetime.now()
     timestamp = now.strftime('%Y%m%d%H%M%S')
 
-    params = 'data_{}_seed_{}_freeze_{}_height_{}_channels_{}_augmentation_{}_delimiter_{}_test_{}_batch_{}'.format(
-        os.path.splitext(os.path.basename(FLAGS.data_path))[0],
-        FLAGS.seed,
-        FLAGS.freeze,
-        FLAGS.image_height,
-        FLAGS.channels,
-        FLAGS.image_transformations,
-        FLAGS.sequence_delimiter,
-        FLAGS.test_split,
-        FLAGS.batch_size
-    )
+    # params = 'data_{}_seed_{}_freeze_{}_height_{}_channels_{}_augmentation_{}_delimiter_{}_test_{}_batch_{}'.format(
+    #     os.path.splitext(os.path.basename(FLAGS.data_path))[0],
+    #     FLAGS.seed,
+    #     FLAGS.freeze,
+    #     FLAGS.image_height,
+    #     FLAGS.channels,
+    #     FLAGS.image_transformations,
+    #     FLAGS.sequence_delimiter,
+    #     FLAGS.test_split,
+    #     FLAGS.batch_size
+    # )
 
-    folder = 'logs/{}_pid_{}_{}_{}'.format(timestamp, os.getpid(), prefix, params)
+    # if FLAGS.log is None:
+    #     folder = 'logs/{}_pid_{}_{}_{}'.format(timestamp, os.getpid(), prefix, params)
+    # else:
+    folder = 'logs/{}_pid_{}_{}'.format(timestamp, os.getpid(), FLAGS.log)
     os.makedirs(folder)
 
     return Logger(folder)

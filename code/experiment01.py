@@ -75,6 +75,10 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', dest='gpu', type=str, default=None, help='GPU id')
     parser.add_argument('--seed', dest='seed', type=int, default=None, help='Random seed for shuffling data (default=None)')
     parser.add_argument('--freeze', dest='freeze', type=int, default=0, help='Unused')
+    parser.add_argument('--train-limit', dest='train_limit', type=int, default=None, help='Number of training samples to use')
+
+    # Misc options
+    parser.add_argument('--log', dest='log', type=str, required=True, help='Log folder')
 
     FLAGS = parser.parse_args()
 
@@ -89,7 +93,7 @@ if __name__ == '__main__':
 
     # ===============================================
     # Loading data
-    print('Preparing data...')
+    logger.log('Preparing data...')
 
     data_reader = DataReader(
         FLAGS.data_path,
@@ -99,7 +103,8 @@ if __name__ == '__main__':
         test_split=FLAGS.test_split,
         batch_size=FLAGS.batch_size,
         image_transformations=FLAGS.image_transformations,
-        seed=FLAGS.seed
+        seed=FLAGS.seed,
+        train_limit=FLAGS.train_limit
     )
 
     train_ds, val_ds, test_ds = data_reader.get_data()
@@ -111,7 +116,7 @@ if __name__ == '__main__':
         len(vocabularies[2].word2idx)
     )
 
-    print('Done')
+    logger.log('Done')
 
     # ===============================================
     # Setting params
@@ -120,7 +125,7 @@ if __name__ == '__main__':
 
     # ===============================================
     # CRNN
-    print("Creating model...")
+    logger.log("Creating model...")
 
     model_placeholders = model(params)
 
@@ -130,22 +135,22 @@ if __name__ == '__main__':
         model_placeholders['seq_len']
     )
 
-    print("Done")
+    logger.log("Done")
 
     # ===============================================
     # Training
-    print('Training with ' + str(data_reader.TRAIN_SPLIT) + ' samples.')
-    print('Validating with ' + str(data_reader.VAL_SPLIT) + ' samples.')
-    print('Testing with ' + str(data_reader.TEST_SPLIT) + ' samples.')
+    logger.log('Training with ' + str(data_reader.TRAIN_SPLIT) + ' samples.')
+    logger.log('Validating with ' + str(data_reader.VAL_SPLIT) + ' samples.')
+    logger.log('Testing with ' + str(data_reader.TEST_SPLIT) + ' samples.')
 
-    saver_joint = tf.train.Saver(max_to_keep=1)  # Saves the complete model
+    saver = tf.train.Saver(max_to_keep=1)  # Saves the complete model
 
     sess.run(tf.global_variables_initializer())
 
     # ===============================================
     # Joint training
     for epoch in range(1, FLAGS.epochs+1):
-        print("Joint epoch {}/{}".format(epoch, FLAGS.epochs))
+        logger.log("Joint epoch {}/{}".format(epoch, FLAGS.epochs))
 
         it_train = train_ds.make_one_shot_iterator()
         next_batch = it_train.get_next()
@@ -158,7 +163,7 @@ if __name__ == '__main__':
                     params
                 )
 
-                print('Batch {}: {} samples'.format(batch, len(X)))
+                logger.log('Batch {}: {} samples'.format(batch, len(X)))
 
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
                 # Enables batch normalization
@@ -178,7 +183,7 @@ if __name__ == '__main__':
                 break
 
         # ===============================================
-        # Split validation
+        # Validation
         if epoch % 5 == 0:
             metrics_joint = (0, 0, 0)  # (editions, total_length, sequences)
 
@@ -207,9 +212,47 @@ if __name__ == '__main__':
                 except tf.errors.OutOfRangeError:
                     break
 
-            save_joint = results.save(epoch, metrics_joint, 'SER')
+            save_joint = results.save(epoch, metrics_joint, 'Validation SER')
 
             if save_joint:
                 model_path = '{}/{}_model'.format(logger.folder, experiment)
-                print('Saving model to {}'.format(model_path))
-                saver_joint.save(sess, model_path, global_step=epoch)
+                logger.log('Saving model to {}'.format(model_path))
+                saver.save(sess, model_path, global_step=epoch)
+
+    if FLAGS.test_split > 0:
+        # ===============================================
+        # Load best model
+        model_path = tf.train.latest_checkpoint(logger.folder, 'checkpoint')
+        saver.restore(sess, model_path)
+        logger.log('Restored best model')
+
+        # ===============================================
+        # Validation
+        metrics = (0, 0, 0)  # (editions, total_length, sequences)
+
+        it = test_ds.make_one_shot_iterator()
+        next_batch = it.get_next()
+        while True:
+            try:
+                X, XL, Y_symbol, Y_position, Y_joint, YL = prepare_data(
+                    sess.run(next_batch),
+                    vocabulary_sizes,
+                    params
+                )
+
+                pred = sess.run(
+                    decoder_joint,
+                    {
+                        model_placeholders['input']: X,
+                        model_placeholders['seq_len']: XL,
+                        model_placeholders['keep_prob']: 1.0,
+                    }
+                )
+
+                metrics, H, Y = eval(pred, Y_joint, vocabularies[2], metrics)
+                logger.log_predictions(epoch, H, Y)
+
+            except tf.errors.OutOfRangeError:
+                break
+
+            results.save(epoch, metrics, 'Test SER')
