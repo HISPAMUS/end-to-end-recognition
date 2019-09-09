@@ -255,4 +255,4 @@ if __name__ == '__main__':
             except tf.errors.OutOfRangeError:
                 break
 
-            results.save(epoch, metrics, 'Test SER')
+        results.save(epoch, metrics, 'Test SER')
