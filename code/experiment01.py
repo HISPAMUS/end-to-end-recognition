@@ -78,7 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('--train-limit', dest='train_limit', type=int, default=None, help='Number of training samples to use')
 
     # Misc options
-    parser.add_argument('--log', dest='log', type=str, required=True, help='Log folder')
+    parser.add_argument('--log', dest='log', type=str, required=True, help='Log file')
 
     FLAGS = parser.parse_args()
 

@@ -119,7 +119,11 @@ if __name__ == '__main__':
     parser.add_argument('--model-symbol', dest='model_symbol', type=str, default=None, help='Load symbol model from file')
     parser.add_argument('--model-position', dest='model_position', type=str, default=None, help='Load position model from file')
     parser.add_argument('--skip-split-training', dest='skip_split_training', default=False, action='store_true', help='Requires symbol and position models')
-    parser.add_argument('--freeze', dest='freeze', type=int, default=0, help='Freeze point (0=No freeze, 1=Freeze convolution layer, 2=Freeze conv+rnn')
+    parser.add_argument('--freeze', dest='freeze', type=int, default=2, help='Freeze point (0=No freeze, 1=Freeze convolution layer, 2=Freeze conv+rnn (default)')
+    parser.add_argument('--train-limit', dest='train_limit', type=int, default=None, help='Number of training samples to use')
+
+    # Misc options
+    parser.add_argument('--log', dest='log', type=str, required=True, help='Log file')
 
     FLAGS = parser.parse_args()
 
@@ -148,7 +152,8 @@ if __name__ == '__main__':
         test_split=FLAGS.test_split,
         batch_size=FLAGS.batch_size,
         image_transformations=FLAGS.image_transformations,
-        seed=FLAGS.seed
+        seed=FLAGS.seed,
+        train_limit=FLAGS.train_limit
     )
     
     train_ds, val_ds, test_ds = data_reader.get_data()
@@ -253,7 +258,7 @@ if __name__ == '__main__':
             
             # ===============================================
             # Split validation   
-            if epoch % 1 == 0:
+            if epoch % 5 == 0:
                 metrics_symbol = (0, 0, 0) # (editions, total_length, sequences)
                 metrics_position = (0, 0, 0)
 
@@ -378,3 +383,42 @@ if __name__ == '__main__':
                 model_path = '{}/{}_model_joint'.format(logger.folder, experiment)
                 print('Saving joint model to {}'.format(model_path))
                 saver_joint.save(sess, model_path, global_step=epoch, latest_filename='checkpoint_joint')
+
+    if FLAGS.test_split > 0:
+        # ===============================================
+        # Load best model
+        model_path = tf.train.latest_checkpoint(logger.folder, 'checkpoint_joint')
+        saver_joint.restore(sess, model_path)
+        logger.log('Restored best model')
+
+        # ===============================================
+        # Validation
+        metrics = (0, 0, 0)  # (editions, total_length, sequences)
+
+        it = test_ds.make_one_shot_iterator()
+        next_batch = it.get_next()
+        while True:
+            try:
+                X, XL, Y_symbol, Y_position, Y_joint, YL = prepare_data(
+                    sess.run(next_batch),
+                    vocabulary_sizes,
+                    params
+                )
+
+                pred = sess.run(
+                    decoder_joint,
+                    {
+                        model_placeholders['input']: X,
+                        model_placeholders['seq_len']: XL,
+                        model_placeholders['keep_prob']: 1.0,
+                    }
+                )
+
+                metrics, H, Y = eval(pred, Y_joint, vocabularies[2], metrics)
+                logger.log_predictions(epoch, H, Y)
+
+            except tf.errors.OutOfRangeError:
+                break
+
+        results.save(epoch, metrics, 'Test SER')
+            
