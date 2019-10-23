@@ -1,0 +1,11 @@
+Epoch 0 - SER: 100.0 - From 48 samples
+Epoch 5 - SER: 99.2274678111588 - From 48 samples
+Epoch 10 - SER: 98.02575107296137 - From 48 samples
+Epoch 15 - SER: 98.62660944206009 - From 48 samples
+Epoch 20 - SER: 97.76824034334764 - From 48 samples
+Epoch 25 - SER: 97.85407725321889 - From 48 samples
+Epoch 30 - SER: 97.76824034334764 - From 48 samples
+Epoch 35 - SER: 97.08154506437768 - From 48 samples
+Epoch 40 - SER: 86.00858369098712 - From 48 samples
+Epoch 45 - SER: 58.4549356223176 - From 48 samples
+Epoch 50 - SER: 48.58369098712446 - From 48 samples

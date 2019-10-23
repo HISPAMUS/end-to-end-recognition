@@ -1,4 +1,5 @@
 *~
 Model/
-data/
 tmp/
+__pycache__
+data_loading*

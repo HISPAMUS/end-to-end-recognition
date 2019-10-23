@@ -1,0 +1,2 @@
+python -u code/training_test.py --input-data data/TrainingTest.lst --output-vocabulary Model/TrainingTest/vocabulary.npy --save-model Model/TrainingTest/conTrans --image-transformations 1 --conf-transformations-path modifierConf/SinModificacion --epochs 200 > resultados/TrainingTest/conTrans.txt
+python -u code/training_test.py --input-data data/TrainingTest.lst --output-vocabulary Model/TrainingTest/vocabulary.npy --save-model Model/TrainingTest/conTrans --image-transformations 3 --conf-transformations-path modifierConf/all --epochs 200 > resultados/TrainingTest/conTrans.txt

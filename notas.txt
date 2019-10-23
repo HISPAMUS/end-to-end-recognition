@@ -1,0 +1,28 @@
+top	    -> ver el estado de los rocesos con su consumo (administrador de tareas)
+nohub	-> ejecutar comandos por sesiones para mantener un coando ejecutandose de manera remota sin tener el terminal abierto
+lsof	-> ver los archivos que est utilizando cada proceso
+
+nohub
+
+                    Presentacion
+
+1. Presentacion del aumentado de datos
+
+2. Enumerar los posibles aumentos de datos
+    2.1. Contraste
+    2.2. Erosion y Dilatacion
+    2.3. Ampliacion y reduccion de margenes
+    2.4. Rotacion
+    2.5. Ojo de pez
+
+3. Detallar los problemas de cada uno
+    3.1. Problemas con la rotacion
+    3.2. Problemas con el pad
+    3.3. Problemas con el ojo de pez
+
+4. Mostrar mejoras de aplicar un determinado aumento
+5. Mostrar la mejora de cada uno de los diferentes aumentos por separado
+6. Posibles aumentos por implementar
+7. Conclusion lograda hasta el momento
+
+    
